@@ -4,11 +4,11 @@ Peter’s Photo Manager is a local-first desktop photo manager for macOS and Win
 
 ## Current Status
 
-Current version: `0.3.0-alpha.1`.
+Current version: `0.3.0-alpha.2`.
 
-The application now supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails, selection, a basic cached-preview dialog, and controlled thumbnail context menus.
+The application now supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails, selection, a full-resolution original image viewer with sequential left/right navigation, a rich photo Details Panel (displaying file details and EXIF camera model, date taken, exposure, ratings, and tags), and context menu actions (Copy filename, Copy complete path, and Copy image).
 
-Thumbnails, a metadata panel, catalogue storage, editing, and AI features have not been implemented yet.
+A persistent database catalogue, albums, file operations, editing, and AI features have not been implemented yet.
 
 The application is an early development build and is not yet ready for public testing. Releases use Semantic Versioning with prerelease labels such as `alpha.1`.
 
@@ -121,7 +121,7 @@ Releases will use semantic versioning:
 
 Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
 
-The current version is `0.3.0-alpha.1`. When changing the application version, keep the version values synchronized in:
+The current version is `0.3.0-alpha.2`. When changing the application version, keep the version values synchronized in:
 
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/Cargo.toml`

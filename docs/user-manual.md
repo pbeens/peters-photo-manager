@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.1` is an early testing build for macOS. It supports local folder browsing and cached thumbnails. It does not yet edit, move, delete, export, tag, or catalogue photographs.
+`0.3.0-alpha.2` is an early testing build for macOS. It supports local folder browsing, high-resolution original image previews with sequential navigation, and a details metadata panel. It does not yet edit, move, delete, export, tag, or catalogue photographs.
 
 ## Start the Application
 
@@ -37,19 +37,30 @@ The grid supports JPEG, PNG, and WebP files.
 
 - Drag the **Thumbnail size** slider to resize the grid.
 - Click a thumbnail to select it.
-- Double-click a thumbnail to open a larger cached preview.
-- Press **Escape** or select **×** to close the preview.
+- Double-click a thumbnail to open it at full resolution.
+- Press **Escape** or select **×** to close the viewer.
+- Browse through photographs sequentially using the **Left/Right Arrow** keys on your keyboard, or the `<` and `>` button overlays on the screen.
 
 The bottom panel shows the number of ready thumbnails and the size of the local thumbnail cache.
 
 ## Context Menu
 
-Right-click a thumbnail for application-controlled options:
+Right-click a thumbnail or the full-size preview image for application-controlled options:
 
-- **Open preview**
+- **Open preview** (thumbnails only)
 - **Copy filename**
+- **Copy complete path**
+- **Copy image** (copies actual image data to system clipboard)
 
 The browser-style context menu is intentionally disabled.
+
+## Photo Details Panel
+
+Select a photograph in the grid to display its properties in the right-side Details panel:
+- Filename, path, format, and file size.
+- Camera model/make and capture date (parsed from EXIF headers).
+- Exposure details (focal length, aperture, shutter speed, ISO).
+- Star ratings and keywords/tags.
 
 ## Cache and Privacy
 
@@ -65,7 +76,6 @@ The cache can be regenerated. A cache-clear command will be added in a later pha
 
 ## Current Limitations
 
-- The preview is a cached thumbnail, not a full-resolution viewer.
-- The application has no metadata panel, ratings, tags, albums, file operations, editing, export, or AI features yet.
+- The application has no persistent database catalogue, albums, file operations, editing, export, or AI features yet.
 - Large folders may take time to scan and thumbnail.
 - The application has been manually tested on macOS; Windows testing is still required.

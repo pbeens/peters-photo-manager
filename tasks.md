@@ -19,8 +19,14 @@ Phase 3: replace the cached preview with a full-resolution image viewer.
 - [x] Manually test folder selection, scanning, removal, and restart persistence.
 - [x] Add the right thumbnail view in Phase 2.
 - [x] Manually test thumbnail generation, selection, and cache reuse.
-- [ ] Implement full-resolution image preview, fit-to-window, and next/previous navigation.
-- [ ] Add the basic photo-details panel after the viewer is implemented.
+- [x] Implement full-resolution image preview and fit-to-window scaling.
+- [x] Implement next/previous image navigation in the viewer.
+- [x] Add the basic photo-details panel.
+- [ ] Implement Lightroom-style delete workflow (Phase 4/7):
+  - Add "Remove Reference" (leaves original file on disk but clears from app).
+  - Add "Delete File" (deletes original from disk and clears from app).
+  - Display custom overlay modal with a "Don't ask me again" checkbox.
+  - Persist skip confirmation preference in settings.
 - [ ] Define the first public test package.
 
 ## Open Questions
@@ -32,6 +38,8 @@ Phase 3: replace the cached preview with a full-resolution image viewer.
 
 ## Recently Completed
 
+- Phase 3 full-resolution viewer and fit-to-window scaling implemented.
+- Right-side photo Details panel (filename, path, dimensions, size, and format) implemented.
 - Initial product specification created.
 - First prototype scope clarified.
 - Public testing identified as a project goal.

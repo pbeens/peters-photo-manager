@@ -1,5 +1,21 @@
 # Prompt Log
 
+## 2026-07-16T12:31:00-0400 — Implement Next/Previous Image Navigation in Viewer
+
+- Prompt summary: Implement left/right navigation controls and arrow key listeners inside the full-resolution image viewer overlay, with automatic synchronization of the selected thumbnail and details panel metadata during navigation.
+
+## 2026-07-16T12:26:00-0400 — Extract and Render Image EXIF Metadata
+
+- Prompt summary: Integrate the `kamadak-exif` crate in the Rust backend to parse EXIF metadata (camera model/make, date taken, exposure parameters, star ratings, and keywords/tags) and update the frontend Details panel HTML and stylesheet to render these properties cleanly.
+
+## 2026-07-16T12:16:00-0400 — Add Copy Image context menu option
+
+- Prompt summary: Add a "Copy image" option to the thumbnail and viewer right-click context menus, implementing canvas-based Clipboard API writing to copy actual image pixels to the system clipboard.
+
+## 2026-07-16T12:12:00-0400 — Add Details Panel and Full-Resolution Image Viewer
+
+- Prompt summary: Implement a right-side photo Details panel to view photo metadata (filename, path, dimensions, size, format) and update the double-click viewer to display the original image at full resolution instead of the cached thumbnail.
+
 ## 2026-07-16T10:04:11-0400 — Consolidate project documentation and versioning
 
 - Prompt summary: Update project documentation to reflect implemented and outstanding work, create a changelog and user manual, establish a prerelease version, and add documentation indexes and links.

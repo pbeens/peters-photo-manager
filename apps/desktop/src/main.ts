@@ -64,6 +64,22 @@ let viewerSourcePath: string | null = null;
 let contextMenu: { sourcePath: string; x: number; y: number } | null = null;
 let errorMessage = "";
 
+type ImageMetadata = {
+  fileSize: number;
+  dimensions: [number, number];
+  format: string;
+  camera?: string;
+  dateTaken?: string;
+  aperture?: string;
+  shutterSpeed?: string;
+  iso?: number;
+  focalLength?: string;
+  rating?: number;
+  keywords?: string[];
+};
+let selectedMetadata: ImageMetadata | null = null;
+
+
 function escapeHtml(value: string): string {
   return value.replace(
     /[&<>'"]/g,
@@ -97,6 +113,32 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+
+
+async function selectAndLoadMetadata(path: string | null): Promise<void> {
+  if (selectedThumbnailPath !== path) {
+    selectedThumbnailPath = path;
+    selectedMetadata = null;
+    render();
+    if (path) {
+      try {
+        selectedMetadata = await invoke<ImageMetadata>("get_image_metadata", { path });
+      } catch (error) {
+        console.error("Failed to load image metadata:", error);
+      }
+      render();
+    }
+  }
+}
+
+async function navigateToImage(index: number): Promise<void> {
+  if (index >= 0 && index < thumbnails.length) {
+    viewerSourcePath = thumbnails[index].sourcePath;
+    render();
+    await selectAndLoadMetadata(viewerSourcePath);
+  }
+}
+
 function render(): void {
   if (!app) {
     return;
@@ -104,8 +146,8 @@ function render(): void {
 
   const selectedFolder = activeFolder;
   const isAllFolders = selectedFolder === ALL_FOLDERS;
-  const viewerThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
-  const contextThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === contextMenu?.sourcePath);
+  const selectedThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
+  const currentIndex = viewerSourcePath ? thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath) : -1;
   const files = scanResult?.files ?? [];
   const status = isScanning
     ? `Scanning folder entries… ${scanProgress?.imagesFound ?? 0} supported images found so far`
@@ -172,11 +214,100 @@ function render(): void {
         </section>
 
         ${selectedFolder ? `<footer class="grid-footer"><span>${thumbnails.length} image thumbnail${thumbnails.length === 1 ? "" : "s"} ready · Cache ${formatBytes(thumbnailCacheBytes)}</span><label class="thumbnail-size-control" for="thumbnail-size"><span>Small</span><input id="thumbnail-size" type="range" min="120" max="300" step="10" value="${thumbnailSize}" /><span>Large</span><output id="thumbnail-size-value">${thumbnailSize}px</output></label></footer>` : ""}
-        ${viewerThumbnail ? `<div class="viewer-backdrop" role="dialog" aria-modal="true"><button class="viewer-close" id="close-viewer" type="button">×</button><figure class="viewer"><img src="${escapeHtml(convertFileSrc(viewerThumbnail.thumbnailPath))}" alt="${escapeHtml(viewerThumbnail.name)}" /><figcaption>${escapeHtml(viewerThumbnail.name)}<span>Cached preview</span></figcaption></figure></div>` : ""}
-        ${contextThumbnail && contextMenu ? `<menu class="image-context-menu" style="left:${contextMenu.x}px;top:${contextMenu.y}px"><li><button id="context-open-preview" type="button">Open preview</button></li><li><button id="context-copy-name" type="button">Copy filename</button></li></menu>` : ""}
+        ${viewerSourcePath ? `
+          <div class="viewer-backdrop" role="dialog" aria-modal="true">
+            <button class="viewer-close" id="close-viewer" type="button">×</button>
+            <button class="viewer-prev" id="viewer-prev" type="button" ${currentIndex <= 0 ? "disabled" : ""}>&lsaquo;</button>
+            <figure class="viewer">
+              <img src="${escapeHtml(convertFileSrc(viewerSourcePath))}" alt="${escapeHtml(folderName(viewerSourcePath))}" />
+              <figcaption>
+                <span>${escapeHtml(folderName(viewerSourcePath))}</span>
+                <span>Original image (${currentIndex + 1} of ${thumbnails.length})</span>
+              </figcaption>
+            </figure>
+            <button class="viewer-next" id="viewer-next" type="button" ${currentIndex === -1 || currentIndex >= thumbnails.length - 1 ? "disabled" : ""}>&rsaquo;</button>
+          </div>
+        ` : ""}
+        ${contextMenu ? `<menu class="image-context-menu" style="left:${contextMenu.x}px;top:${contextMenu.y}px">${!viewerSourcePath ? `<li><button id="context-open-preview" type="button">Open preview</button></li>` : ""}<li><button id="context-copy-name" type="button">Copy filename</button></li><li><button id="context-copy-path" type="button">Copy complete path</button></li><li><button id="context-copy-image" type="button">Copy image</button></li></menu>` : ""}
 
         ${scanResult && scanResult.unreadableEntries > 0 ? `<p class="warning-message">${scanResult.unreadableEntries} unreadable item${scanResult.unreadableEntries === 1 ? " was" : "s were"} skipped safely.</p>` : ""}
       </section>
+
+      <aside class="details-panel" aria-label="Photo details">
+        <div class="sidebar-heading">
+          <p class="eyebrow">Details</p>
+        </div>
+        ${
+          selectedThumbnail
+            ? `<div class="details-content">
+                <div class="details-group">
+                  <label>Filename</label>
+                  <p>${escapeHtml(selectedThumbnail.name)}</p>
+                </div>
+                <div class="details-group">
+                  <label>Path</label>
+                  <p class="details-path" title="${escapeHtml(selectedThumbnail.sourcePath)}">${escapeHtml(selectedThumbnail.sourcePath)}</p>
+                </div>
+                ${
+                  selectedMetadata
+                    ? `<div class="details-group">
+                        <label>Format</label>
+                        <p>${escapeHtml(selectedMetadata.format)}</p>
+                      </div>
+                      <div class="details-group">
+                        <label>File Size</label>
+                        <p>${formatBytes(selectedMetadata.fileSize)}</p>
+                      </div>
+                      <div class="details-group">
+                        <label>Dimensions</label>
+                        <p>${selectedMetadata.dimensions[0]} × ${selectedMetadata.dimensions[1]} px</p>
+                      </div>
+                      ${selectedMetadata.camera ? `
+                        <div class="details-group">
+                          <label>Camera</label>
+                          <p>${escapeHtml(selectedMetadata.camera)}</p>
+                        </div>
+                      ` : ""}
+                      ${selectedMetadata.dateTaken ? `
+                        <div class="details-group">
+                          <label>Date Taken</label>
+                          <p>${escapeHtml(selectedMetadata.dateTaken)}</p>
+                        </div>
+                      ` : ""}
+                      ${(selectedMetadata.aperture || selectedMetadata.shutterSpeed || selectedMetadata.iso || selectedMetadata.focalLength) ? `
+                        <div class="details-group">
+                          <label>Exposure</label>
+                          <p>${[
+                            selectedMetadata.focalLength,
+                            selectedMetadata.aperture,
+                            selectedMetadata.shutterSpeed,
+                            selectedMetadata.iso ? `ISO ${selectedMetadata.iso}` : ""
+                          ].filter(Boolean).join(" · ")}</p>
+                        </div>
+                      ` : ""}
+                      ${selectedMetadata.rating ? `
+                        <div class="details-group">
+                          <label>Rating</label>
+                          <p class="details-rating">${"★".repeat(selectedMetadata.rating)}${"☆".repeat(5 - selectedMetadata.rating)}</p>
+                        </div>
+                      ` : ""}
+                      ${selectedMetadata.keywords ? `
+                        <div class="details-group">
+                          <label>Keywords</label>
+                          <div class="details-keywords">
+                            ${selectedMetadata.keywords.map(kw => `<span class="keyword-tag">${escapeHtml(kw)}</span>`).join("")}
+                          </div>
+                        </div>
+                      ` : ""}
+                      `
+                    : `<div class="details-loading">Loading metadata…</div>`
+                }
+              </div>`
+            : `<div class="details-empty">
+                <p>Select a photograph to view details.</p>
+              </div>`
+        }
+      </aside>
     </section>
   `;
 
@@ -203,11 +334,16 @@ function render(): void {
   });
   document.querySelectorAll<HTMLButtonElement>("[data-thumbnail-path]").forEach((button) => {
     button.addEventListener("click", () => {
-      selectedThumbnailPath = button.dataset.thumbnailPath ?? null;
-      document.querySelectorAll(".thumbnail-card.is-selected").forEach((card) => card.classList.remove("is-selected"));
-      button.classList.add("is-selected");
+      const path = button.dataset.thumbnailPath ?? null;
+      void selectAndLoadMetadata(path);
     });
-    button.addEventListener("dblclick", () => { viewerSourcePath = button.dataset.thumbnailPath ?? null; render(); });
+    button.addEventListener("dblclick", () => {
+      viewerSourcePath = button.dataset.thumbnailPath ?? null;
+      render();
+      if (viewerSourcePath) {
+        void selectAndLoadMetadata(viewerSourcePath);
+      }
+    });
     button.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       contextMenu = { sourcePath: button.dataset.thumbnailPath ?? "", x: event.clientX, y: event.clientY };
@@ -215,14 +351,48 @@ function render(): void {
     });
   });
   document.querySelector("#close-viewer")?.addEventListener("click", () => { viewerSourcePath = null; render(); });
+  document.querySelector("#viewer-prev")?.addEventListener("click", () => {
+    void navigateToImage(currentIndex - 1);
+  });
+  document.querySelector("#viewer-next")?.addEventListener("click", () => {
+    void navigateToImage(currentIndex + 1);
+  });
   document.querySelector("#context-open-preview")?.addEventListener("click", () => { viewerSourcePath = contextMenu?.sourcePath ?? null; contextMenu = null; render(); });
   document.querySelector("#context-copy-name")?.addEventListener("click", async () => {
-    if (contextThumbnail) await navigator.clipboard.writeText(contextThumbnail.name);
+    if (contextMenu) await navigator.clipboard.writeText(folderName(contextMenu.sourcePath));
     contextMenu = null;
     render();
   });
+  document.querySelector("#context-copy-path")?.addEventListener("click", async () => {
+    if (contextMenu) await navigator.clipboard.writeText(contextMenu.sourcePath);
+    contextMenu = null;
+    render();
+  });
+  document.querySelector("#context-copy-image")?.addEventListener("click", async () => {
+    if (contextMenu) {
+      const path = contextMenu.sourcePath;
+      try {
+        document.body.style.cursor = "wait";
+        await invoke<void>("copy_image_to_clipboard", { path });
+      } catch (error) {
+        console.error("Failed to copy image to clipboard:", error);
+      } finally {
+        document.body.style.cursor = "default";
+      }
+    }
+    contextMenu = null;
+    render();
+  });
+  if (viewerSourcePath) {
+    document.querySelector(".viewer img")?.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      contextMenu = { sourcePath: viewerSourcePath ?? "", x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
+      render();
+    });
+  }
   document.querySelectorAll<HTMLElement>("[data-toggle-folder]").forEach((toggle) => toggle.addEventListener("click", (event) => { event.stopPropagation(); const path = toggle.dataset.toggleFolder; if (path) { expandedFolders.has(path) ? expandedFolders.delete(path) : expandedFolders.add(path); render(); } }));
-  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; void scanSelectedFolder(); render(); }));
+  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedMetadata = null; void scanSelectedFolder(); render(); }));
 }
 
 async function chooseFolder(): Promise<void> {
@@ -245,6 +415,8 @@ async function chooseFolder(): Promise<void> {
     await loadFolderTrees();
     scanResult = null;
     thumbnails = [];
+    selectedThumbnailPath = null;
+    selectedMetadata = null;
     await scanSelectedFolder();
   } catch (error) {
     errorMessage = String(error);
@@ -263,6 +435,8 @@ async function removeFolder(): Promise<void> {
     scanResult = null;
     thumbnails = [];
     scanProgress = null;
+    selectedThumbnailPath = null;
+    selectedMetadata = null;
     errorMessage = "";
   } catch (error) {
     errorMessage = String(error);
@@ -278,6 +452,8 @@ async function scanSelectedFolder(): Promise<void> {
   }
   const requestId = ++scanRequestId;
 
+  selectedThumbnailPath = null;
+  selectedMetadata = null;
   isScanning = true;
   scanProgress = { scannedEntries: 0, imagesFound: 0 };
   errorMessage = "";
@@ -340,9 +516,21 @@ async function initialize(): Promise<void> {
       if (contextMenu) { contextMenu = null; render(); }
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && viewerSourcePath) {
-        viewerSourcePath = null;
-        render();
+      if (viewerSourcePath) {
+        if (event.key === "Escape") {
+          viewerSourcePath = null;
+          render();
+        } else if (event.key === "ArrowLeft") {
+          const currentIndex = thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath);
+          if (currentIndex > 0) {
+            void navigateToImage(currentIndex - 1);
+          }
+        } else if (event.key === "ArrowRight") {
+          const currentIndex = thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath);
+          if (currentIndex >= 0 && currentIndex < thumbnails.length - 1) {
+            void navigateToImage(currentIndex + 1);
+          }
+        }
       }
     });
     await listen<ScanProgress>("scan-progress", (event) => {

@@ -4,6 +4,24 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.2 — 2026-07-16
+
+### Added
+
+- Enriched photo Details Panel displaying filename, file size, path, format, and dimensions.
+- Native EXIF metadata extraction for camera make/model, capture date, exposure parameters (aperture, shutter speed, ISO, focal length), star ratings, and keywords/tags.
+- Full-resolution original image viewer utilizing Tauri's custom asset protocol.
+- Left/Right sequential navigation in the viewer via keyboard arrow keys and circular button overlays, synced with active thumbnail and Details panel selection.
+- Right-click context actions "Copy complete path" and "Copy image" (native system clipboard image copying).
+
+### Changed
+
+- Replaced the low-resolution thumbnail preview dialog with a high-resolution viewer backdrop.
+
+### Removed
+
+- Resolved limitation where the preview only displays a stretched thumbnail.
+
 ## 0.3.0-alpha.1 — 2026-07-16
 
 ### Added
