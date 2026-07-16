@@ -1,5 +1,6 @@
 use crate::scanner::ImageFile;
 use image::ImageFormat;
+use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -44,11 +45,12 @@ pub fn cache_size(app: &AppHandle) -> Result<u64, String> {
 pub fn generate<F>(
     app: &AppHandle,
     files: Vec<ImageFile>,
-    mut report: F,
+    report: F,
 ) -> Result<ThumbnailResult, String>
 where
-    F: FnMut(&ThumbnailProgress),
+    F: FnMut(&ThumbnailProgress) + Send + Sync,
 {
+    // Resolve cache directory
     let cache_directory = app
         .path()
         .app_cache_dir()
@@ -58,31 +60,44 @@ where
         .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
 
     let total = files.len();
-    let mut thumbnails = Vec::with_capacity(total);
-    let mut errors = Vec::new();
+    // Shared progress reporter for parallel threads
+    let progress = std::sync::Arc::new(std::sync::Mutex::new(report));
 
-    for (index, file) in files.into_iter().enumerate() {
-        match thumbnail_for(&file, &cache_directory) {
-            Ok(thumbnail_path) => thumbnails.push(Thumbnail {
+    // Parallel processing: collect all results first, then split successes from errors
+    let results: Vec<(usize, Result<(ImageFile, PathBuf), String>)> = files
+        .into_par_iter()
+        .enumerate()
+        .map(|(index, file)| {
+            let result = thumbnail_for(&file, &cache_directory);
+            // Report progress safely across threads
+            if let Ok(mut rep) = progress.lock() {
+                rep(&ThumbnailProgress {
+                    completed: index + 1,
+                    total,
+                });
+            }
+            (index, result.map(|path| (file, path)))
+        })
+        .collect();
+
+    // Split into successes and errors
+    let mut thumbnails = Vec::with_capacity(results.len());
+    let mut errors = Vec::new();
+    for (_, outcome) in results {
+        match outcome {
+            Ok((file, path)) => thumbnails.push(Thumbnail {
                 name: file.name,
                 source_path: file.path,
-                thumbnail_path: thumbnail_path.to_string_lossy().into_owned(),
+                thumbnail_path: path.to_string_lossy().into_owned(),
             }),
-            Err(error) => {
-                eprintln!("{error}");
-                errors.push(error);
-            }
+            Err(err) => errors.push(err),
         }
-        report(&ThumbnailProgress {
-            completed: index + 1,
-            total,
-        });
     }
 
     Ok(ThumbnailResult { thumbnails, errors })
 }
 
-fn thumbnail_for(file: &ImageFile, cache_directory: &Path) -> Result<PathBuf, String> {
+pub fn thumbnail_for(file: &ImageFile, cache_directory: &Path) -> Result<PathBuf, String> {
     let source = Path::new(&file.path);
     let metadata = fs::metadata(source)
         .map_err(|error| format!("Could not read {}: {error}", source.display()))?;
@@ -163,6 +178,8 @@ mod tests {
         let file = ImageFile {
             name: "source.png".to_owned(),
             path: source.to_string_lossy().into_owned(),
+            file_size: 0,
+            last_modified: 0,
         };
         let first = thumbnail_for(&file, &cache).expect("create thumbnail");
         let second = thumbnail_for(&file, &cache).expect("reuse thumbnail");

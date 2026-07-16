@@ -49,6 +49,10 @@ Development should follow these rules:
 
 The first version should only prove that the application can scan a folder and display photographs quickly.
 
+## **Current Implementation Note**
+
+The current `0.3.0-alpha.3` build has progressed beyond the original phase ordering: it includes a persistent SQLite catalogue, indexed basic photo details, and a cached-first original-image viewer. The phase descriptions below remain the long-term product roadmap rather than a strict record of release order. Current implemented behavior is documented in the root README, user manual, current-phase note, and changelog.
+
 ---
 
 # **Product Name**
@@ -240,11 +244,10 @@ peters-photo-manager/
 │   ├── ppm-editing/
 │   └── ppm-common/
 │
-├── docs/
-│   ├── architecture/
-│   ├── specifications/
+├── project-docs/
 │   ├── decisions/
-│   └── development/
+│   ├── development/
+│   └── user-manual.md
 │
 ├── tests/
 │   ├── fixtures/
@@ -1228,11 +1231,11 @@ Include:
 - known limitations
 - roadmap summary
 
-## **docs/specifications/software-specification.md**
+## **software-specification.md**
 
 Store the complete product specification.
 
-## **docs/development/current-phase.md**
+## **project-docs/development/current-phase.md**
 
 Include:
 
@@ -1243,11 +1246,11 @@ Include:
 - acceptance criteria
 - unresolved issues
 
-## **docs/development/backlog.md**
+## **project-docs/development/backlog.md**
 
 Include future features without implementing them.
 
-## **docs/decisions/**
+## **project-docs/decisions/**
 
 Store architectural decision records.
 

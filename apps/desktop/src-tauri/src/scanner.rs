@@ -7,6 +7,8 @@ use std::path::Path;
 pub struct ImageFile {
     pub name: String,
     pub path: String,
+    pub file_size: u64,
+    pub last_modified: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -113,9 +115,23 @@ where
                         pending_directories.push(entry.path())
                     }
                     Ok(file_type) if file_type.is_file() && is_supported_image(&entry.path()) => {
+                        let path = entry.path();
+                        let file_size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        let last_modified = entry
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| {
+                                t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                    .map(|d| d.as_secs())
+                                    .ok()
+                            })
+                            .unwrap_or(0);
                         files.push(ImageFile {
                             name: entry.file_name().to_string_lossy().into_owned(),
-                            path: entry.path().to_string_lossy().into_owned(),
+                            path: path.to_string_lossy().into_owned(),
+                            file_size,
+                            last_modified,
                         });
                     }
                     Ok(_) => {}

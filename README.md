@@ -4,11 +4,11 @@ Peter’s Photo Manager is a local-first desktop photo manager for macOS and Win
 
 ## Current Status
 
-Current version: `0.3.0-alpha.2`.
+Current version: `0.3.0-alpha.3`.
 
-The application now supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails, selection, a full-resolution original image viewer with sequential left/right navigation, a rich photo Details Panel (displaying file details and EXIF camera model, date taken, exposure, ratings, and tags), and context menu actions (Copy filename, Copy complete path, and Copy image).
+The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails, a persistent local SQLite catalogue, instant basic Details-panel updates, and a cached-first viewer that loads the original image in the background. Viewer navigation updates in place with the selected thumbnail and details.
 
-A persistent database catalogue, albums, file operations, editing, and AI features have not been implemented yet.
+Albums, editing, and AI features have not been implemented yet.
 
 The application is an early development build and is not yet ready for public testing. Releases use Semantic Versioning with prerelease labels such as `alpha.1`.
 
@@ -25,10 +25,10 @@ The application is an early development build and is not yet ready for public te
 - [`tasks.md`](tasks.md): current work, next steps, and open questions
 - [`software-specification.md`](software-specification.md): product direction and phased requirements
 - [`CHANGELOG.md`](CHANGELOG.md): version history and known limitations
-- [`docs/`](docs/): documentation index
-- [`docs/user-manual.md`](docs/user-manual.md): current user functionality
-- [`docs/development/`](docs/development/): current phase and backlog notes
-- [`docs/decisions/`](docs/decisions/): architectural decisions
+- [`project-docs/`](project-docs/): documentation index
+- [`project-docs/user-manual.md`](project-docs/user-manual.md): current user functionality
+- [`project-docs/development/`](project-docs/development/): current phase and backlog notes
+- [`project-docs/decisions/`](project-docs/decisions/): architectural decisions
 - [`tests/fixtures/`](tests/fixtures/): controlled test-photo collections
 
 ## Development Prerequisites
@@ -76,7 +76,7 @@ npm run tauri dev
 
 `npm install` downloads the frontend dependencies listed in `package.json`. It is safe to run again when dependencies change. `npm run tauri dev` starts the frontend, compiles the Rust/Tauri code, and opens the desktop application.
 
-To test Phase 2, select **Add folder**, choose a folder containing JPEG, PNG, or WebP images, and wait for scanning and thumbnail generation to complete. Select a thumbnail to mark it as selected. The selected folder remains available the next time the application opens. **Remove folder** clears that saved selection; it never deletes or moves photographs.
+To test the current build, select **Add folder**, choose a folder containing JPEG, PNG, or WebP images, and wait for scanning and thumbnail generation to complete. Click a thumbnail to show its file details, then double-click it to open the viewer. The viewer displays the cached thumbnail immediately and replaces it with the original file when ready. The selected folder remains available the next time the application opens. **Remove folder** clears that saved selection; it never deletes or moves photographs.
 
 Press `Control-C` in Terminal to stop the development application.
 
@@ -121,13 +121,13 @@ Releases will use semantic versioning:
 
 Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
 
-The current version is `0.3.0-alpha.2`. When changing the application version, keep the version values synchronized in:
+The current version is `0.3.0-alpha.3`. When changing the application version, keep the version values synchronized in:
 
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/Cargo.toml`
 - `apps/desktop/src-tauri/tauri.conf.json`
 
-The public repository and issue URL will be added here when available.
+Submit feedback and report issues on the [GitHub Issues](https://github.com/pbeens/peters-photo-manager/issues) page.
 
 ## License
 
@@ -139,7 +139,7 @@ The project license has not yet been selected. A license file will be added afte
 2. Folder browser and scan management
 3. Thumbnail grid
 4. Basic image viewer
-5. Persistent catalogue and metadata
+5. Catalogue and metadata enhancements
 6. Ratings, tags, file operations, albums, and export
 7. Local AI capabilities
 

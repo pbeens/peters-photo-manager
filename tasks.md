@@ -2,10 +2,11 @@
 
 ## Current Focus
 
-Phase 3: replace the cached preview with a full-resolution image viewer.
+Phase 3 viewer and responsiveness repair — completed.
 
 ## Next Tasks
 
+- [ ] Resolve the `clippy::type_complexity` warning in thumbnail generation so the strict Rust lint check passes.
 - [ ] Confirm the final project license.
 - [x] Confirm the initial Tauri application structure.
 - [x] Define Phase 0 acceptance criteria.
@@ -38,8 +39,9 @@ Phase 3: replace the cached preview with a full-resolution image viewer.
 
 ## Recently Completed
 
-- Phase 3 full-resolution viewer and fit-to-window scaling implemented.
-- Right-side photo Details panel (filename, path, dimensions, size, and format) implemented.
+- Phase 3 cached-first original viewer, fit-to-window scaling, and in-place navigation implemented.
+- Right-side photo Details panel now updates immediately from catalogue file facts; EXIF remains optional.
+- Scan progress no longer rebuilds the full thumbnail grid, and scan metadata extraction runs off the async command runtime.
 - Initial product specification created.
 - First prototype scope clarified.
 - Public testing identified as a project goal.

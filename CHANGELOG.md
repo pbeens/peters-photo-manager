@@ -4,6 +4,25 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.3 — 2026-07-16
+
+### Changed
+
+- **Responsive browsing repair**: Thumbnail selection updates the Details panel without rebuilding the thumbnail grid; scan progress updates status text only.
+- **Details-panel behavior**: File facts are shown immediately; the current panel displays camera, lens, and capture date when those EXIF fields are available.
+- **Cached-first viewer**: The viewer shows a cached thumbnail immediately, then loads the full-resolution original in the background. Previous/next navigation updates in place.
+- **Non-blocking scan metadata**: Scan-time image dimensions and EXIF extraction run on blocking workers, preserving the async command runtime for interface requests.
+
+### Added
+
+- **SQLite Database Integration**: Thread-safe, persistent local cataloguing of folders and images using SQLite and `rusqlite`.
+- **Instant Startup**: Frontend retrieves cached image files and thumbnails instantly from the database without waiting for disk re-scans.
+- **Background Synchronization & Maintenance**: Background directory sync detects, indexes, and cache-validates new or modified files on the fly.
+- **Database Metadata Tracking**: Columns for Lens model, GPS coordinates (latitude, longitude, altitude), and textual location (country, state, city) parsed natively from EXIF headers and stored in the catalog.
+- **UI Details Panel Upgrades**: Shows Lens model and formatted GPS location coordinates.
+- **"Submit Feedback" Link**: Integrated in the sidebar controls footer to direct testers to the public issues repository.
+- **Catalogue and file-operation backend**: Watched-folder removal cascades; commands exist for marking records ignored and deleting originals, cached thumbnails, and database entries. Corresponding user-interface actions remain future work.
+
 ## 0.3.0-alpha.2 — 2026-07-16
 
 ### Added

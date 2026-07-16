@@ -1,3 +1,4 @@
+mod db;
 mod scanner;
 mod settings;
 mod thumbnails;
@@ -5,8 +6,11 @@ mod thumbnails;
 use scanner::{FolderEntry, ScanProgress, ScanResult};
 use settings::AppSettings;
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager};
 use thumbnails::{ThumbnailProgress, ThumbnailResult};
+
+pub struct DbState(pub Mutex<rusqlite::Connection>);
 
 #[tauri::command]
 fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
@@ -14,25 +18,65 @@ fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
-fn add_watched_folder(app: AppHandle, folder: String) -> Result<AppSettings, String> {
+fn add_watched_folder(
+    app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
+    folder: String,
+) -> Result<AppSettings, String> {
     if !Path::new(&folder).is_dir() {
         return Err(format!("{folder} is not a readable folder."));
     }
     let mut settings = settings::load(&app)?;
     if !settings.watched_folders.contains(&folder) {
-        settings.watched_folders.push(folder);
+        settings.watched_folders.push(folder.clone());
         settings.watched_folders.sort();
         settings::save(&app, &settings)?;
+
+        // Sync folder path to database
+        let conn = db_state
+            .0
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        db::add_folder(&conn, &folder).map_err(|err| err.to_string())?;
     }
     Ok(settings)
 }
 
 #[tauri::command]
-fn remove_watched_folder(app: AppHandle, folder: String) -> Result<AppSettings, String> {
+fn remove_watched_folder(
+    app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
+    folder: String,
+) -> Result<AppSettings, String> {
     let mut settings = settings::load(&app)?;
     settings.watched_folders.retain(|saved| saved != &folder);
     settings::save(&app, &settings)?;
+
+    // Sync removal from database (cascades and deletes files)
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    db::remove_folder(&conn, &folder).map_err(|err| err.to_string())?;
     Ok(settings)
+}
+
+/// Wipe the entire catalogue and re-register watched folders so a fresh
+/// rescan picks up everything from scratch.  Temporary dev helper.
+#[tauri::command]
+fn reset_catalogue(app: AppHandle, db_state: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    db::reset_catalogue(&conn).map_err(|err| err.to_string())?;
+    // Re-register all watched folders so subsequent scans can find them
+    if let Ok(settings) = settings::load(&app) {
+        for folder in &settings.watched_folders {
+            let _ = db::add_folder(&conn, folder);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -45,45 +89,42 @@ async fn discover_folders(folder: String) -> Result<Vec<FolderEntry>, String> {
 #[tauri::command]
 async fn scan_folder(
     app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
     folder: String,
-    recursive: bool,
 ) -> Result<ScanResult, String> {
-    let folder_path = folder.clone();
-
-    tauri::async_runtime::spawn_blocking(move || {
-        eprintln!("Scanning selected folder: {folder_path}");
-        scanner::scan_directory(Path::new(&folder_path), recursive, |progress| {
-            emit_scan_progress(&app, progress);
-        })
-    })
-    .await
-    .map_err(|error| format!("The background scan could not finish: {error}"))?
+    perform_scan_and_sync(app, db_state, folder).await
 }
 
 #[tauri::command]
-async fn scan_folders(folders: Vec<String>) -> Result<ScanResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut files = Vec::new();
-        let mut errors = Vec::new();
-        let mut scanned_entries = 0_usize;
-        let mut unreadable_entries = 0_usize;
-        for folder in folders {
-            let result = scanner::scan_directory(Path::new(&folder), true, |_| {})?;
-            scanned_entries += result.scanned_entries;
-            unreadable_entries += result.unreadable_entries;
-            files.extend(result.files);
-            errors.extend(result.errors);
+async fn scan_folders(
+    app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
+    folders: Vec<String>,
+) -> Result<ScanResult, String> {
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    let mut scanned_entries = 0_usize;
+    let mut unreadable_entries = 0_usize;
+
+    for folder in folders {
+        match perform_scan_and_sync(app.clone(), db_state.clone(), folder).await {
+            Ok(result) => {
+                scanned_entries += result.scanned_entries;
+                unreadable_entries += result.unreadable_entries;
+                files.extend(result.files);
+                errors.extend(result.errors);
+            }
+            Err(error) => errors.push(error),
         }
-        files.sort_by(|left, right| left.path.cmp(&right.path));
-        Ok(ScanResult {
-            files,
-            scanned_entries,
-            unreadable_entries,
-            errors,
-        })
+    }
+
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(ScanResult {
+        files,
+        scanned_entries,
+        unreadable_entries,
+        errors,
     })
-    .await
-    .map_err(|error| format!("The combined background scan could not finish: {error}"))?
 }
 
 #[tauri::command]
@@ -91,6 +132,7 @@ async fn generate_thumbnails(
     app: AppHandle,
     files: Vec<scanner::ImageFile>,
 ) -> Result<ThumbnailResult, String> {
+    // Retain compatibility with frontend thumbnail calls if any remain
     tauri::async_runtime::spawn_blocking(move || {
         thumbnails::generate(&app, files, |progress| {
             emit_thumbnail_progress(&app, progress)
@@ -100,6 +142,255 @@ async fn generate_thumbnails(
     .map_err(|error| format!("Thumbnail generation could not finish: {error}"))?
 }
 
+#[tauri::command]
+fn get_catalogued_files(
+    db_state: tauri::State<'_, DbState>,
+    folder: Option<String>,
+) -> Result<Vec<db::IndexedFile>, String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    let files = match folder.as_deref() {
+        Some("__all_folders__") | None => db::get_active_files(&conn, None),
+        Some(path) => db::get_active_files_in_path(&conn, Path::new(path)),
+    }
+    .map_err(|err| err.to_string())?;
+    Ok(files)
+}
+
+#[tauri::command]
+fn remove_from_catalogue(db_state: tauri::State<'_, DbState>, path: String) -> Result<(), String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    db::mark_file_ignored(&conn, &path).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_from_disk(db_state: tauri::State<'_, DbState>, path: String) -> Result<(), String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+
+    // Find and delete thumbnail file
+    if let Some(record) = db::get_file_record(&conn, &path).map_err(|err| err.to_string())? {
+        if let Some(thumb_path) = record.thumbnail_path {
+            let _ = std::fs::remove_file(Path::new(&thumb_path));
+        }
+    }
+
+    // Remove image file from disk
+    let file_path = Path::new(&path);
+    if file_path.is_file() {
+        std::fs::remove_file(file_path)
+            .map_err(|err| format!("Could not delete file from disk: {err}"))?;
+    }
+
+    // Remove record from database
+    db::delete_file_record(&conn, &path).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+async fn perform_scan_and_sync(
+    app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
+    folder: String,
+) -> Result<ScanResult, String> {
+    // 1. Scan directory on disk
+    let folder_path = folder.clone();
+    let app_clone = app.clone();
+    let scan_res = tauri::async_runtime::spawn_blocking(move || {
+        scanner::scan_directory(Path::new(&folder_path), true, |progress| {
+            emit_scan_progress(&app_clone, progress);
+        })
+    })
+    .await
+    .map_err(|error| format!("The background scan could not finish: {error}"))??;
+
+    // 2. Open DB and query folder index & existing catalogued files
+    let conn_mutex = &db_state.0;
+
+    let (folder_id, catalogued_map) = {
+        let conn = conn_mutex
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        let folder_id = db::add_folder(&conn, &folder).map_err(|err| err.to_string())?;
+        let catalogued = db::get_active_files_in_path(&conn, Path::new(&folder))
+            .map_err(|err| err.to_string())?;
+        use std::collections::HashMap;
+        let map: HashMap<String, db::IndexedFile> = catalogued
+            .into_iter()
+            .map(|f| (f.path.clone(), f))
+            .collect();
+        (folder_id, map)
+    };
+
+    let mut files_to_process = Vec::new();
+    let mut active_paths = std::collections::HashSet::new();
+
+    // Check files logic and clean up missing entries
+    {
+        let conn = conn_mutex
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        for disk_file in &scan_res.files {
+            active_paths.insert(disk_file.path.clone());
+
+            // Check if file is ignored or exists in db
+            if let Some(existing) =
+                db::get_file_record(&conn, &disk_file.path).map_err(|err| err.to_string())?
+            {
+                if existing.status == "ignored" {
+                    continue;
+                }
+                if existing.file_size == disk_file.file_size
+                    && existing.last_modified == disk_file.last_modified
+                    && existing
+                        .thumbnail_path
+                        .as_deref()
+                        .map(|p| !p.is_empty())
+                        .unwrap_or(false)
+                {
+                    // File exists, hasn't changed, and already has a thumbnail. Skip.
+                    continue;
+                }
+            }
+
+            // Needs metadata/thumbnail extraction
+            files_to_process.push(disk_file.clone());
+        }
+
+        // Find and delete missing files (exist in catalogued_map but not in active_paths)
+        for path in catalogued_map.keys() {
+            if !active_paths.contains(path) {
+                let _ = db::delete_file_record(&conn, path);
+            }
+        }
+    }
+
+    // 3. Process new/modified files (no DB locks held across awaits!)
+    if !files_to_process.is_empty() {
+        let total = files_to_process.len();
+        let app_clone = app.clone();
+        let cache_directory = app
+            .path()
+            .app_cache_dir()
+            .map_err(|error| format!("Could not resolve thumbnail cache: {error}"))?
+            .join("thumbnails");
+        std::fs::create_dir_all(&cache_directory)
+            .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
+
+        let mut indexed_files = Vec::new();
+
+        for (index, disk_file) in files_to_process.into_iter().enumerate() {
+            let file_path_str = disk_file.path.clone();
+            let file_name_str = disk_file.name.clone();
+            let file_size = disk_file.file_size;
+            let file_last_modified = disk_file.last_modified;
+            let cache_dir_clone = cache_directory.clone();
+
+            let thumbnail_path = tauri::async_runtime::spawn_blocking(move || {
+                let temp_file = scanner::ImageFile {
+                    name: file_name_str,
+                    path: file_path_str,
+                    file_size,
+                    last_modified: file_last_modified,
+                };
+                thumbnails::thumbnail_for(&temp_file, &cache_dir_clone)
+            })
+            .await
+            .map_err(|err| format!("Thumbnail generation thread failed: {err}"))?
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned());
+
+            // Extract image dimensions and EXIF on a blocking worker so the
+            // async command runtime stays available for UI requests.
+            let metadata_path = disk_file.path.clone();
+            let metadata = tauri::async_runtime::spawn_blocking(move || {
+                get_image_metadata_internal(&metadata_path).ok()
+            })
+            .await
+            .map_err(|err| format!("Image metadata worker failed: {err}"))?;
+
+            indexed_files.push(db::IndexedFile {
+                path: disk_file.path.clone(),
+                name: disk_file.name.clone(),
+                file_size: disk_file.file_size,
+                format: disk_file
+                    .path
+                    .split('.')
+                    .next_back()
+                    .unwrap_or("")
+                    .to_uppercase(),
+                width: metadata.as_ref().map(|m| m.dimensions.0).unwrap_or(0),
+                height: metadata.as_ref().map(|m| m.dimensions.1).unwrap_or(0),
+                camera: metadata.as_ref().and_then(|m| m.camera.clone()),
+                lens: metadata.as_ref().and_then(|m| m.lens.clone()),
+                latitude: metadata.as_ref().and_then(|m| m.latitude),
+                longitude: metadata.as_ref().and_then(|m| m.longitude),
+                gps_altitude: metadata.as_ref().and_then(|m| m.gps_altitude),
+                location_country: metadata.as_ref().and_then(|m| m.location_country.clone()),
+                location_state: metadata.as_ref().and_then(|m| m.location_state.clone()),
+                location_city: metadata.as_ref().and_then(|m| m.location_city.clone()),
+                date_taken: metadata.as_ref().and_then(|m| m.date_taken.clone()),
+                aperture: metadata.as_ref().and_then(|m| m.aperture.clone()),
+                shutter_speed: metadata.as_ref().and_then(|m| m.shutter_speed.clone()),
+                iso: metadata.as_ref().and_then(|m| m.iso),
+                focal_length: metadata.as_ref().and_then(|m| m.focal_length.clone()),
+                rating: metadata.as_ref().and_then(|m| m.rating),
+                keywords: metadata.as_ref().and_then(|m| m.keywords.clone()),
+                thumbnail_path,
+                last_modified: disk_file.last_modified,
+                status: "active".to_string(),
+            });
+
+            emit_thumbnail_progress(
+                &app_clone,
+                &ThumbnailProgress {
+                    completed: index + 1,
+                    total,
+                },
+            );
+        }
+
+        // Save batch to DB
+        let mut conn = conn_mutex
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        db::save_files_batch(&mut conn, &indexed_files, folder_id)
+            .map_err(|err| err.to_string())?;
+    }
+
+    // 4. Return all active files in DB for this folder as ScanResult
+    let final_files = {
+        let conn = conn_mutex
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        db::get_active_files_in_path(&conn, Path::new(&folder)).map_err(|err| err.to_string())?
+    };
+
+    let image_files = final_files
+        .into_iter()
+        .map(|f| scanner::ImageFile {
+            name: f.name,
+            path: f.path,
+            file_size: f.file_size,
+            last_modified: f.last_modified,
+        })
+        .collect();
+
+    Ok(ScanResult {
+        files: image_files,
+        scanned_entries: scan_res.scanned_entries,
+        unreadable_entries: scan_res.unreadable_entries,
+        errors: scan_res.errors,
+    })
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageMetadata {
@@ -107,6 +398,13 @@ pub struct ImageMetadata {
     pub dimensions: (u32, u32),
     pub format: String,
     pub camera: Option<String>,
+    pub lens: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub gps_altitude: Option<f64>,
+    pub location_country: Option<String>,
+    pub location_state: Option<String>,
+    pub location_city: Option<String>,
     pub date_taken: Option<String>,
     pub aperture: Option<String>,
     pub shutter_speed: Option<String>,
@@ -117,8 +415,26 @@ pub struct ImageMetadata {
 }
 
 #[tauri::command]
-fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
-    let file_path = Path::new(&path);
+async fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
+    tauri::async_runtime::spawn_blocking(move || get_image_metadata_internal(&path))
+        .await
+        .map_err(|error| format!("Photo metadata lookup could not finish: {error}"))?
+}
+
+fn parse_gps_coordinate(field: &exif::Field) -> Option<f64> {
+    if let exif::Value::Rational(ref rationals) = field.value {
+        if rationals.len() >= 3 {
+            let deg = rationals[0].num as f64 / rationals[0].denom as f64;
+            let min = rationals[1].num as f64 / rationals[1].denom as f64;
+            let sec = rationals[2].num as f64 / rationals[2].denom as f64;
+            return Some(deg + min / 60.0 + sec / 3600.0);
+        }
+    }
+    None
+}
+
+fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
+    let file_path = Path::new(path);
     let metadata = std::fs::metadata(file_path)
         .map_err(|err| format!("Could not read file metadata: {err}"))?;
     let file_size = metadata.len();
@@ -133,6 +449,13 @@ fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
         .to_uppercase();
 
     let mut camera = None;
+    let mut lens = None;
+    let mut latitude = None;
+    let mut longitude = None;
+    let mut gps_altitude = None;
+    let location_country = None;
+    let location_state = None;
+    let location_city = None;
     let mut date_taken = None;
     let mut aperture = None;
     let mut shutter_speed = None;
@@ -165,6 +488,53 @@ fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
                 (None, Some(md)) => Some(md.trim_matches('"').to_string()),
                 _ => None,
             };
+
+            // Parse Lens Model
+            if let Some(field) = exif.get_field(exif::Tag::LensModel, exif::In::PRIMARY) {
+                lens = Some(
+                    field
+                        .display_value()
+                        .to_string()
+                        .trim_matches('"')
+                        .to_string(),
+                );
+            }
+
+            // Parse GPS Latitude
+            if let Some(field) = exif.get_field(exif::Tag::GPSLatitude, exif::In::PRIMARY) {
+                if let Some(val) = parse_gps_coordinate(field) {
+                    let is_south = exif
+                        .get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY)
+                        .map(|f| f.display_value().to_string().contains('S'))
+                        .unwrap_or(false);
+                    latitude = Some(if is_south { -val } else { val });
+                }
+            }
+
+            // Parse GPS Longitude
+            if let Some(field) = exif.get_field(exif::Tag::GPSLongitude, exif::In::PRIMARY) {
+                if let Some(val) = parse_gps_coordinate(field) {
+                    let is_west = exif
+                        .get_field(exif::Tag::GPSLongitudeRef, exif::In::PRIMARY)
+                        .map(|f| f.display_value().to_string().contains('W'))
+                        .unwrap_or(false);
+                    longitude = Some(if is_west { -val } else { val });
+                }
+            }
+
+            // Parse GPS Altitude
+            if let Some(field) = exif.get_field(exif::Tag::GPSAltitude, exif::In::PRIMARY) {
+                if let exif::Value::Rational(ref rationals) = field.value {
+                    if let Some(r) = rationals.first() {
+                        let alt = r.num as f64 / r.denom as f64;
+                        let is_below = exif
+                            .get_field(exif::Tag::GPSAltitudeRef, exif::In::PRIMARY)
+                            .map(|f| f.display_value().to_string().contains('1')) // 1 = below sea level
+                            .unwrap_or(false);
+                        gps_altitude = Some(if is_below { -alt } else { alt });
+                    }
+                }
+            }
 
             if let Some(field) = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
                 date_taken = Some(
@@ -233,6 +603,13 @@ fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
         dimensions: (width, height),
         format,
         camera,
+        lens,
+        latitude,
+        longitude,
+        gps_altitude,
+        location_country,
+        location_state,
+        location_city,
         date_taken,
         aperture,
         shutter_speed,
@@ -294,17 +671,46 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let app_data_dir = app.path().app_data_dir().map_err(|err| {
+                eprintln!("Failed to get app data directory: {err}");
+                err
+            })?;
+            std::fs::create_dir_all(&app_data_dir).map_err(|err| {
+                eprintln!("Failed to create app data directory: {err}");
+                err
+            })?;
+            let db_path = app_data_dir.join("catalogue.db");
+            let conn = db::init_db(&db_path).map_err(|err| {
+                eprintln!("Failed to initialize database: {err}");
+                err
+            })?;
+
+            // Proactively sync all watched folders in settings.json to the folders table
+            if let Ok(settings) = settings::load(app.handle()) {
+                for folder in settings.watched_folders {
+                    let _ = db::add_folder(&conn, &folder);
+                }
+            }
+
+            app.manage(DbState(Mutex::new(conn)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_settings,
             add_watched_folder,
             remove_watched_folder,
+            reset_catalogue,
             discover_folders,
             scan_folder,
             scan_folders,
             generate_thumbnails,
             thumbnail_cache_size,
             get_image_metadata,
-            copy_image_to_clipboard
+            copy_image_to_clipboard,
+            get_catalogued_files,
+            remove_from_catalogue,
+            delete_from_disk
         ])
         .run(tauri::generate_context!())
         .expect("error while running Peter's Photo Manager");

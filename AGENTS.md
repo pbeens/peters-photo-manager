@@ -41,7 +41,7 @@ The intended technical direction is Rust for application logic, Tauri for the de
 
 - `apps/desktop/`: desktop application source.
 - `crates/`: Rust modules or crates created when justified by current work.
-- `docs/`: architecture, development notes, decisions, and specifications.
+- `project-docs/`: architecture, development notes, decisions, and specifications.
 - `tests/fixtures/`: small, controlled photo collections for repeatable tests.
 - `scripts/`: shared utilities for testing, validation, performance checks, and packaging when needed.
 - `skills/`: reusable agent workflows, created only when a repeatable workflow is valuable.
@@ -81,7 +81,7 @@ When behavior, workflow, architecture, or policy changes:
 
 - update the relevant documentation
 - update links in the nearest relevant README or index
-- record important architectural choices in `docs/decisions/`
+- record important architectural choices in `project-docs/decisions/`
 - update the current-phase documentation
 
 Ask before making major structural changes, changing the technology direction, or substantially expanding the current milestone.

@@ -1,0 +1,85 @@
+# User Manual
+
+## Current Version
+
+`0.3.0-alpha.3` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts and available EXIF information.
+
+## Start the Application
+
+From the project root, run:
+
+```bash
+cd apps/desktop
+npm run tauri dev
+```
+
+Use `Control-C` in Terminal to stop the development application.
+
+## Add Folders
+
+1. Select **Add folder** in the sidebar.
+2. Choose a local folder.
+3. The folder and relevant subfolders appear in the sidebar.
+4. Select a folder to scan and show its images.
+
+Added folders are saved locally. Removing a folder from the sidebar removes only the application’s saved reference; it never changes the files on disk.
+
+## Browse Folders
+
+- Select **All Folders** to combine all listed root folders. This view always includes subfolders.
+- Use the arrows beside folder names to expand or collapse their paths.
+- Folder views always include images in their subfolders. Use **Hide folders with no images** to choose whether empty folders remain visible as destinations for later drag-and-drop work.
+- Select **Hide folders with no images** to keep the tree focused on folders with supported images in their path.
+
+## Browse Thumbnails
+
+The grid supports JPEG, PNG, and WebP files.
+
+- Drag the **Thumbnail size** slider to resize the grid.
+- Click a thumbnail to select it and immediately show its filename, path, format, size, and dimensions in the Details panel.
+- Double-click a thumbnail to open it. A large cached preview appears first; the original file replaces it when ready. The caption reports if the original could not be loaded.
+- Press **Escape** or select **×** to close the viewer.
+- Browse through photographs sequentially using the **Left/Right Arrow** keys on your keyboard, or the `<` and `>` button overlays on the screen.
+
+The bottom panel shows the number of ready thumbnails and the size of the local thumbnail cache.
+
+## Context Menu
+
+Right-click a thumbnail for application-controlled options:
+
+- **Open preview** (thumbnails only)
+- **Copy filename**
+- **Copy complete path**
+- **Copy image** (copies actual image data to system clipboard)
+
+The browser-style context menu is intentionally disabled.
+
+## Photo Details Panel
+
+Select a photograph in the grid to display its properties in the right-side Details panel:
+
+- Filename, path, format, file size, and image dimensions are displayed from the local catalogue immediately.
+- When embedded EXIF is available, camera model/make, lens model, and capture date are also shown.
+- Photos without embedded EXIF explicitly state that no embedded photo metadata is available.
+
+## Cache and Privacy
+
+Original photographs remain in their existing folders. Generated thumbnails are stored in the application cache, not beside originals.
+
+On macOS, the current cache location is:
+
+```text
+~/Library/Caches/com.peterbeens.photomanager/thumbnails/
+```
+
+The cache can be regenerated. A cache-clear command will be added in a later phase.
+
+## Feedback and Issues
+
+If you find bugs or have feature requests, please submit them on the [GitHub Issues](https://github.com/pbeens/peters-photo-manager/issues) page. You can also click the **Submit Feedback** link directly in the app's sidebar.
+
+## Current Limitations
+
+- The application has no rating/keyword editing, albums, file moving, export, or AI features yet.
+- Large folders may take time to scan and thumbnail on their first run; the grid, Details panel, and viewer remain available while this work runs.
+- The application has been manually tested on macOS; Windows testing is still required.
