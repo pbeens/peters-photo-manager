@@ -1,0 +1,13 @@
+.DS_Store
+
+# JavaScript dependencies and build output
+node_modules/
+apps/desktop/dist/
+
+# Rust build output
+target/
+apps/desktop/src-tauri/target/
+
+# Local environment files
+.env
+.env.*

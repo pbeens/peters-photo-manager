@@ -1,0 +1,146 @@
+# Peter’s Photo Manager
+
+Peter’s Photo Manager is a local-first desktop photo manager for macOS and Windows. It is intended to work with photographs in their existing folders rather than requiring import into a proprietary library.
+
+## Current Status
+
+Current version: `0.3.0-alpha.1`.
+
+The application now supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails, selection, a basic cached-preview dialog, and controlled thumbnail context menus.
+
+Thumbnails, a metadata panel, catalogue storage, editing, and AI features have not been implemented yet.
+
+The application is an early development build and is not yet ready for public testing. Releases use Semantic Versioning with prerelease labels such as `alpha.1`.
+
+## Planned Technology
+
+- Rust for application logic
+- Tauri 2 for the desktop application shell
+- TypeScript for the user interface
+- JPEG, PNG, and WebP support in the first milestone
+
+## Repository Guide
+
+- [`AGENTS.md`](AGENTS.md): instructions for contributors and coding agents
+- [`tasks.md`](tasks.md): current work, next steps, and open questions
+- [`software-specification.md`](software-specification.md): product direction and phased requirements
+- [`CHANGELOG.md`](CHANGELOG.md): version history and known limitations
+- [`docs/`](docs/): documentation index
+- [`docs/user-manual.md`](docs/user-manual.md): current user functionality
+- [`docs/development/`](docs/development/): current phase and backlog notes
+- [`docs/decisions/`](docs/decisions/): architectural decisions
+- [`tests/fixtures/`](tests/fixtures/): controlled test-photo collections
+
+## Development Prerequisites
+
+Development requires:
+
+1. Rust and Cargo installed with [rustup](https://rust-lang.org/tools/install/).
+2. Tauri’s [platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+3. Node.js LTS and npm from [nodejs.org](https://nodejs.org/en/download).
+4. Git.
+
+On macOS, the required Xcode Command Line Tools can be installed or checked with:
+
+```bash
+xcode-select --install
+```
+
+If macOS reports that the Command Line Tools are already installed, this prerequisite is satisfied.
+
+On Windows, Tauri requires Microsoft C++ Build Tools and Microsoft Edge WebView2. See the official Tauri prerequisites before building there.
+
+## Initialize or Check Out the Project
+
+The repository already contains the generated desktop application in `apps/desktop/`. Do not run `npm create tauri-app` again unless you are intentionally creating a fresh application.
+
+The name used during scaffolding was the internal package name:
+
+| Purpose | Value |
+| --- | --- |
+| Package/project name | `peters-photo-manager` |
+| Application identifier | `com.peterbeens.photomanager` |
+| User-facing product name | Peter’s Photo Manager |
+
+Rust and npm package names must use lowercase letters, numbers, and hyphens. The package name is not the same as the display name.
+
+## Run the Development Application
+
+Open Terminal and run these commands from the repository root:
+
+```bash
+cd apps/desktop
+npm install
+npm run tauri dev
+```
+
+`npm install` downloads the frontend dependencies listed in `package.json`. It is safe to run again when dependencies change. `npm run tauri dev` starts the frontend, compiles the Rust/Tauri code, and opens the desktop application.
+
+To test Phase 2, select **Add folder**, choose a folder containing JPEG, PNG, or WebP images, and wait for scanning and thumbnail generation to complete. Select a thumbnail to mark it as selected. The selected folder remains available the next time the application opens. **Remove folder** clears that saved selection; it never deletes or moves photographs.
+
+Press `Control-C` in Terminal to stop the development application.
+
+## Build and Test Workflow
+
+Run these commands from `apps/desktop/`:
+
+```bash
+# TypeScript and frontend production build
+npm run build
+
+# Rust tests
+cd src-tauri
+cargo test
+
+# Rust formatting check
+cargo fmt -- --check
+
+# Rust linting
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Return to the desktop app directory and create a packaged build
+cd ..
+npm run tauri build
+
+# On macOS, verify the application bundle without creating a DMG
+npm run tauri build -- --bundles app
+```
+
+Packaged files are written under `apps/desktop/src-tauri/target/release/bundle/`. On macOS, the `.app` bundle can be verified independently with the `--bundles app` command. DMG creation may require local Finder and disk-image support; if that step fails while the `.app` succeeds, the application has still compiled successfully.
+
+These are local build artifacts and should not be committed as source files.
+
+## Versioning and Releases
+
+Releases will use semantic versioning:
+
+- `MAJOR`: incompatible public changes
+- `MINOR`: backward-compatible features
+- `PATCH`: backward-compatible fixes
+- pre-release labels such as `alpha`, `beta`, and `rc` identify testing builds
+
+Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
+
+The current version is `0.3.0-alpha.1`. When changing the application version, keep the version values synchronized in:
+
+- `apps/desktop/package.json`
+- `apps/desktop/src-tauri/Cargo.toml`
+- `apps/desktop/src-tauri/tauri.conf.json`
+
+The public repository and issue URL will be added here when available.
+
+## License
+
+The project license has not yet been selected. A license file will be added after that decision is confirmed.
+
+## Roadmap
+
+1. Repository and architecture setup
+2. Folder browser and scan management
+3. Thumbnail grid
+4. Basic image viewer
+5. Persistent catalogue and metadata
+6. Ratings, tags, file operations, albums, and export
+7. Local AI capabilities
+
+Future features are not commitments for the current milestone. See the specification and [`tasks.md`](tasks.md) for current scope.
