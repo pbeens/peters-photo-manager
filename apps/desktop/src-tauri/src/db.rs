@@ -100,6 +100,20 @@ pub fn remove_folder(conn: &Connection, path: &str) -> Result<(), rusqlite::Erro
     Ok(())
 }
 
+pub fn remove_files_in_path(conn: &Connection, path: &Path) -> Result<(), rusqlite::Error> {
+    let path = path.to_string_lossy();
+    let separator = if cfg!(target_os = "windows") {
+        "\\"
+    } else {
+        "/"
+    };
+    conn.execute(
+        "DELETE FROM files WHERE path = ?1 OR path LIKE ?2",
+        params![path, format!("{path}{separator}%")],
+    )?;
+    Ok(())
+}
+
 /// Wipe all catalogue data and recreate empty tables.  
 /// Used by the developer "Reset & Rescan" button during early testing.
 pub fn reset_catalogue(conn: &Connection) -> Result<(), rusqlite::Error> {

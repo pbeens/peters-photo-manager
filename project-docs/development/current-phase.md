@@ -18,6 +18,9 @@ Provide a responsive thumbnail browser with immediate basic details, a cached-fi
 - In-place synchronization of grid selection, Details, and viewer navigation without rebuilding the thumbnail grid.
 - Scan-time image dimensions and EXIF extraction run on blocking workers rather than the async command runtime.
 - Application-controlled thumbnail context menu.
+- Persistent thumbnail size, sort-field, and sort-direction preferences.
+- Folder context actions for system opening, path copying, and exact nested-folder exclusion.
+- Matched bottom footers for feedback and optional project support.
 - All Phase 1 and Phase 2 folder and thumbnail features.
 
 ## Excluded
@@ -42,7 +45,7 @@ Filesystem monitoring, editing, albums, exporting, AI, RAW support, video, plugi
 
 ## Manual Test Needed
 
-- Responsive selection, viewer opening, and navigation have been manually accepted on macOS.
+- Responsive selection, viewer opening, navigation, and alpha.5 folder/thumbnail controls have been manually accepted on macOS.
 
 ## Next Phase
 

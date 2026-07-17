@@ -23,11 +23,10 @@ Phase 3 viewer and responsiveness repair — completed.
 - [x] Implement full-resolution image preview and fit-to-window scaling.
 - [x] Implement next/previous image navigation in the viewer.
 - [x] Add the basic photo-details panel.
-- [ ] Implement Lightroom-style delete workflow (Phase 4/7):
-  - Add "Remove Reference" (leaves original file on disk but clears from app).
-  - Add "Delete File" (deletes original from disk and clears from app).
-  - Display custom overlay modal with a "Don't ask me again" checkbox.
-  - Persist skip confirmation preference in settings.
+- [x] Implement always-confirmed photo removal workflow:
+  - **Remove from catalogue** leaves the original file on disk and excludes it from future scans.
+  - **Delete from disk** deletes the original file, cached thumbnail, and catalogue entry.
+  - Context menu, Delete, and Backspace open the same explicit choice; the confirmation cannot be skipped.
 - [ ] Define the first public test package.
 
 ## Open Questions

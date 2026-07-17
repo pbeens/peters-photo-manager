@@ -4,9 +4,9 @@ Peter’s Photo Manager is a local-first desktop photo manager for macOS and Win
 
 ## Current Status
 
-Current version: `0.3.0-alpha.4`.
+Current version: `0.3.0-alpha.5`.
 
-The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails, a persistent local SQLite catalogue, instant basic Details-panel updates, and a cached-first viewer that loads the original image in the background. Viewer navigation updates in place with the selected thumbnail and details.
+The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails with a visible cache-size indicator, a persistent local SQLite catalogue, instant basic Details-panel updates, and a cached-first viewer that loads the original image in the background. Thumbnail size and sorting preferences persist between launches. Viewer navigation updates in place with the selected thumbnail and details.
 
 Albums, editing, and AI features have not been implemented yet.
 
@@ -76,7 +76,7 @@ npm run tauri dev
 
 `npm install` downloads the frontend dependencies listed in `package.json`. It is safe to run again when dependencies change. `npm run tauri dev` starts the frontend, compiles the Rust/Tauri code, and opens the desktop application.
 
-To test the current build, select **Add folder**, choose a folder containing JPEG, PNG, or WebP images, and wait for scanning and thumbnail generation to complete. Click a thumbnail to show its file details, then double-click it to open the viewer. The viewer displays the cached thumbnail immediately and replaces it with the original file when ready. The selected folder remains available the next time the application opens. **Remove folder** clears that saved selection; it never deletes or moves photographs.
+To test the current build, open **••• Folder options**, select **Add folder**, and choose a folder containing JPEG, PNG, or WebP images. Click a thumbnail to show its file details, then double-click it to open the viewer. The viewer displays the cached thumbnail immediately and replaces it with the original file when ready. Right-click a folder to open it in the system file manager, copy its path, or remove that exact folder from the catalogue; nested-folder removal excludes only that selected folder from later scans. Original photographs are never moved or changed by folder removal.
 
 Press `Control-C` in Terminal to stop the development application.
 
@@ -98,15 +98,15 @@ cargo fmt -- --check
 # Rust linting
 cargo clippy --all-targets --all-features -- -D warnings
 
-# Return to the desktop app directory and create a packaged build
+# Return to the desktop app directory and create and export a macOS DMG
 cd ..
-npm run tauri build
+npm run build:app
 
 # On macOS, verify the application bundle without creating a DMG
 npm run tauri build -- --bundles app
 ```
 
-Packaged files are written under `apps/desktop/src-tauri/target/release/bundle/`. On macOS, the `.app` bundle can be verified independently with the `--bundles app` command. DMG creation may require local Finder and disk-image support; if that step fails while the `.app` succeeds, the application has still compiled successfully.
+Packaged files are written under `apps/desktop/src-tauri/target/release/bundle/` and the DMG is copied to `exports/`. On macOS, the `.app` bundle can be verified independently with the `--bundles app` command. DMG creation may require local Finder and disk-image support; if that step fails while the `.app` succeeds, the application has still compiled successfully.
 
 These are local build artifacts and should not be committed as source files.
 
@@ -121,7 +121,7 @@ Releases will use semantic versioning:
 
 Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
 
-The current version is `0.3.0-alpha.4`. When changing the application version, keep the version values synchronized in:
+The current version is `0.3.0-alpha.5`. When changing the application version, keep the version values synchronized in:
 
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/Cargo.toml`

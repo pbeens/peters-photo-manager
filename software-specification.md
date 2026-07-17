@@ -51,7 +51,7 @@ The first version should only prove that the application can scan a folder and d
 
 ## **Current Implementation Note**
 
-The current `0.3.0-alpha.4` build has progressed beyond the original phase ordering: it includes a persistent SQLite catalogue, indexed basic photo details, and a cached-first original-image viewer. The phase descriptions below remain the long-term product roadmap rather than a strict record of release order. Current implemented behavior is documented in the root README, user manual, current-phase note, and changelog.
+The current `0.3.0-alpha.5` build has progressed beyond the original phase ordering: it includes a persistent SQLite catalogue, indexed basic photo details, and a cached-first original-image viewer. The phase descriptions below remain the long-term product roadmap rather than a strict record of release order. Current implemented behavior is documented in the root README, user manual, current-phase note, and changelog.
 
 ---
 

@@ -1,5 +1,141 @@
 # Prompt Log
 
+## 2026-07-17T11:16:00-0400 — Document and package alpha.5 release
+
+- Prompt summary: Update all project documentation for the completed alpha.5 behavior and package a release artifact.
+
+## 2026-07-17T11:08:00-0400 — Correct Details footer flex structure
+
+- Prompt summary: Apply the updated audit fix by moving the Details heading outside its growing body and using zero-basis flex sizing to pin the support footer to the bottom.
+
+## 2026-07-17T11:02:00-0400 — Apply structural footer alignment fix
+
+- Prompt summary: Implement the audited shared header/body/footer layout so the Folder and Details footer dividers remain aligned across panel states.
+
+## 2026-07-17T10:56:00-0400 — Review footer alignment audit
+
+- Prompt summary: Review the audit of the Submit Feedback and Buy me a coffee footer alignment issue before deciding on further changes.
+
+## 2026-07-17T10:50:00-0400 — Remove scan status and lock footer widths
+
+- Prompt summary: Delete the transient scan-status message and dot entirely, and enforce equal non-shrinking widths for the sidebar and Details footer panels.
+
+## 2026-07-17T10:41:00-0400 — Remove exact folders and compact footer links
+
+- Prompt summary: Make folder removal apply only to the right-clicked folder, including persistent nested-folder exclusions, and reduce the shared footer-link panel height.
+
+## 2026-07-17T10:30:00-0400 — Restore folder removal context action
+
+- Prompt summary: Move Remove folder from the sidebar into the folder right-click menu and ensure the feedback and support footer dividers use identical styling.
+
+## 2026-07-17T10:22:00-0400 — Match sidebar and Details footer panels
+
+- Prompt summary: Give the Submit Feedback and Buy me a coffee footer panels identical dimensions, padding, divider treatment, and link styling.
+
+## 2026-07-17T10:16:00-0400 — Correct All Folders hierarchy toggle
+
+- Prompt summary: Change the All Folders arrow so it retains visible top-level folder rows and collapses only their nested hierarchy.
+
+## 2026-07-17T10:10:00-0400 — Add All Folders toggle and align side panels
+
+- Prompt summary: Add an expand/collapse arrow to All Folders for showing or hiding top-level folders, and give the Folders and Details panels matching widths.
+
+## 2026-07-17T10:04:00-0400 — Add Details-panel support link
+
+- Prompt summary: Remove the redundant folder-sidebar divider and add a Buy me a coffee panel at the bottom of Details, styled to match Submit Feedback.
+
+## 2026-07-17T09:56:00-0400 — Persist thumbnail preferences and consolidate reset
+
+- Prompt summary: Save thumbnail size, sort field, and sort direction across launches in the application settings file, and move Reset & Rescan into Folder options.
+
+## 2026-07-17T09:47:00-0400 — Compact the thumbnail sort sentence
+
+- Prompt summary: Combine the thumbnail count and sort label into one lowercase sentence and reduce the sort selector and direction toggle height.
+
+## 2026-07-17T09:41:00-0400 — Remove thumbnail-header separator and equalize controls
+
+- Prompt summary: Remove the dot separator from the thumbnail-grid heading and set the sort-field selector and ascending/descending toggle to exactly the same height.
+
+## 2026-07-17T09:34:00-0400 — Polish thumbnail footer controls
+
+- Prompt summary: Standardize the thumbnail footer typography and control sizing, and remove the obsolete subfolder separator shown below the All Folders heading.
+
+## 2026-07-17T09:27:00-0400 — Refine thumbnail footer styling and count
+
+- Prompt summary: Match the sort-direction toggle to the light sort-field selector styling and shorten the thumbnail count to a localized image total.
+
+## 2026-07-17T09:20:00-0400 — Replace thumbnail sorting pop-up with footer controls
+
+- Prompt summary: Remove the unreliable thumbnail sorting pop-up and header status; place an inline Sort by field selector and ascending/descending toggle in the thumbnail footer.
+
+## 2026-07-17T09:12:00-0400 — Repair thumbnail sort-field selection
+
+- Prompt summary: Fix thumbnail sort-field changes so the selected field is applied, the visible sort state updates, and the sort menu remains available for direction changes.
+
+## 2026-07-17T09:06:00-0400 — Preserve sort menu and show sort state
+
+- Prompt summary: Keep the thumbnail sort menu open after choosing a different field and visibly identify the active sort field and direction in the thumbnail view.
+
+## 2026-07-17T09:00:00-0400 — Keep sort controls open and simplify direction
+
+- Prompt summary: Keep the thumbnail sorting menu open while choices are changed, and replace separate direction choices with an ascending/descending toggle.
+
+## 2026-07-17T08:48:00-0400 — Stabilize thumbnail options after folder refresh
+
+- Prompt summary: Keep the thumbnail sorting-menu trigger functional after adding a folder causes catalogue-refresh renders.
+
+## 2026-07-17T08:44:00-0400 — Move add-folder action into the folder menu
+
+- Prompt summary: Move Add folder into the Folder options pop-up and reduce the Folders title size further.
+
+## 2026-07-17T08:42:00-0400 — Reposition the folder options pop-up
+
+- Prompt summary: Shift the Folder options pop-up right within the sidebar so its left edge is fully visible instead of clipped.
+
+## 2026-07-17T08:38:00-0400 — Refine folder and thumbnail option menus
+
+- Prompt summary: Replace the inline options panels with compact anchored pop-up menus, use a toggle for hiding empty folders, and show explicit Ascending and Descending sort controls for every thumbnail sort field.
+
+## 2026-07-17T08:32:00-0400 — Add compact title and thumbnail sorting menu
+
+- Prompt summary: Reduce the Folders title size and add a Thumbnail options menu that sorts the grid by file name, date taken, date modified, or file size in ascending or descending order.
+
+## 2026-07-17T08:28:00-0400 — Compact the folder browser and add folder options
+
+- Prompt summary: Reduce folder-tree font size and move the empty-folder filter into a new sidebar Folder options menu as the start of a broader program-menu pattern.
+
+## 2026-07-17T06:35:00-0400 — Add confirmed catalogue removal and disk deletion
+
+- Prompt summary: Add right-click and keyboard-initiated photo removal with a required choice between removing the catalogue reference while preserving the file or permanently deleting the file from disk.
+
+## 2026-07-17T06:28:00-0400 — Stabilize repeated context-menu use
+
+- Prompt summary: Move thumbnail and folder context menus into a persistent host so repeated right-clicks continue to work after using the viewer or another menu action.
+
+## 2026-07-17T06:24:00-0400 — Add reliable context-menu dismissal
+
+- Prompt summary: Make thumbnail and folder context menus dismiss with Escape or a normal click elsewhere in the application.
+
+## 2026-07-17T06:21:00-0400 — Dismiss the thumbnail menu before opening preview
+
+- Prompt summary: Fix the thumbnail context menu remaining visible after choosing Open preview by removing its DOM before opening the persistent viewer.
+
+## 2026-07-17T06:18:00-0400 — Restore thumbnail right-click actions
+
+- Prompt summary: Fix thumbnail context-menu actions being immediately dismissed after right-click while preserving the new folder context menu.
+
+## 2026-07-17T06:16:00-0400 — Add native folder opening for alpha.5
+
+- Prompt summary: Start alpha.5 by adding a folder-browser context-menu action that opens the selected folder in Finder on macOS or Explorer on Windows.
+
+## 2026-07-17T06:12:00-0400 — Clarify alpha.4 manual acceptance
+
+- Prompt summary: Clarify that manual acceptance refers to hands-on feature testing, and confirm that the current user manual documents the alpha.4 viewer and keyboard-navigation behavior.
+
+## 2026-07-17T06:10:00-0400 — Review next development priorities
+
+- Prompt summary: Review the completed alpha.4 work and identify the next planned development tasks and release-readiness priorities.
+
 ## 2026-07-17T06:08:00-0400 — Archive the alpha.4 disk image
 
 - Prompt summary: Move the newly created alpha.4 macOS disk image from the Tauri build bundle into the project exports folder.

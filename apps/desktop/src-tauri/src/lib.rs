@@ -6,6 +6,7 @@ mod thumbnails;
 use scanner::{FolderEntry, ScanProgress, ScanResult};
 use settings::AppSettings;
 use std::path::Path;
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use thumbnails::{ThumbnailProgress, ThumbnailResult};
@@ -15,6 +16,31 @@ pub struct DbState(pub Mutex<rusqlite::Connection>);
 #[tauri::command]
 fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
     settings::load(&app)
+}
+
+#[tauri::command]
+fn save_display_preferences(
+    app: AppHandle,
+    thumbnail_size: u16,
+    thumbnail_sort_key: String,
+    thumbnail_sort_ascending: bool,
+) -> Result<AppSettings, String> {
+    if !(120..=300).contains(&thumbnail_size) {
+        return Err("Thumbnail size must be between 120 and 300 pixels.".to_string());
+    }
+    if !matches!(
+        thumbnail_sort_key.as_str(),
+        "name" | "dateTaken" | "lastModified" | "fileSize"
+    ) {
+        return Err("Thumbnail sort key is not supported.".to_string());
+    }
+
+    let mut settings = settings::load(&app)?;
+    settings.thumbnail_size = thumbnail_size;
+    settings.thumbnail_sort_key = thumbnail_sort_key;
+    settings.thumbnail_sort_ascending = thumbnail_sort_ascending;
+    settings::save(&app, &settings)?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -59,6 +85,62 @@ fn remove_watched_folder(
         .map_err(|_| "Failed to lock database".to_string())?;
     db::remove_folder(&conn, &folder).map_err(|err| err.to_string())?;
     Ok(settings)
+}
+
+#[tauri::command]
+fn remove_folder_from_browser(
+    app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
+    folder: String,
+) -> Result<AppSettings, String> {
+    let mut settings = settings::load(&app)?;
+    let path = Path::new(&folder);
+    let root = settings
+        .watched_folders
+        .iter()
+        .find(|watched| path.starts_with(Path::new(watched)))
+        .cloned()
+        .ok_or_else(|| "That folder is not managed by this catalogue.".to_string())?;
+
+    if root == folder {
+        settings
+            .watched_folders
+            .retain(|watched| watched != &folder);
+    } else if !settings.excluded_folders.contains(&folder) {
+        settings.excluded_folders.push(folder.clone());
+        settings.excluded_folders.sort();
+    }
+    settings::save(&app, &settings)?;
+
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    if root == folder {
+        db::remove_folder(&conn, &folder).map_err(|err| err.to_string())?;
+    } else {
+        db::remove_files_in_path(&conn, path).map_err(|err| err.to_string())?;
+    }
+    Ok(settings)
+}
+
+#[tauri::command]
+fn open_folder_in_file_manager(path: String) -> Result<(), String> {
+    if !Path::new(&path).is_dir() {
+        return Err(format!("{path} is not an available folder."));
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("explorer");
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = Command::new("xdg-open");
+
+    command.arg(&path).spawn().map_err(|error| {
+        format!("Could not open the folder in the system file manager: {error}")
+    })?;
+    Ok(())
 }
 
 /// Wipe the entire catalogue and re-register watched folders so a fresh
@@ -203,13 +285,20 @@ async fn perform_scan_and_sync(
     // 1. Scan directory on disk
     let folder_path = folder.clone();
     let app_clone = app.clone();
-    let scan_res = tauri::async_runtime::spawn_blocking(move || {
+    let mut scan_res = tauri::async_runtime::spawn_blocking(move || {
         scanner::scan_directory(Path::new(&folder_path), true, |progress| {
             emit_scan_progress(&app_clone, progress);
         })
     })
     .await
     .map_err(|error| format!("The background scan could not finish: {error}"))??;
+
+    let excluded_folders = settings::load(&app)?.excluded_folders;
+    scan_res.files.retain(|file| {
+        !excluded_folders
+            .iter()
+            .any(|excluded| Path::new(&file.path).starts_with(Path::new(excluded)))
+    });
 
     // 2. Open DB and query folder index & existing catalogued files
     let conn_mutex = &db_state.0;
@@ -698,8 +787,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_settings,
+            save_display_preferences,
             add_watched_folder,
             remove_watched_folder,
+            remove_folder_from_browser,
+            open_folder_in_file_manager,
             reset_catalogue,
             discover_folders,
             scan_folder,
