@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.6` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts and available EXIF information.
+`0.3.0-alpha.7` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
 
 ## Start the Application
 
@@ -40,6 +40,7 @@ The grid supports JPEG, PNG, and WebP files.
 - Click a thumbnail to select it and immediately show its properties and rating in the Details panel.
 - **Star Ratings**: Click any of the 5 stars in the Details panel to assign a star rating to the photo. Click the `×` button beside the stars to clear the rating (make it unrated). Ratings are written directly to the image file's metadata (`IFD0:Rating` / `XMP:Rating`), making them fully persistent and synchronized across devices.
 - **Keyboard Rating Shortcuts**: Press keys `0` through `5` on your keyboard when highlighting or viewing a photo to immediately set its rating (pressing `0` clears it).
+- **Manual Tags**: Type a tag in the Details panel and press **Enter** or comma to add it. Previously used tags are suggested as you type and can be selected with click, **Enter**, **Tab**, or the arrow keys.
 - Double-click a thumbnail to open it. A large cached preview appears first; the original file replaces it when ready. The viewer fits the complete image within the available window. The caption reports if the original could not be loaded.
 - With the viewer closed, use the **Arrow keys** to move the grid selection and **Enter** or **Space** to open the selected image. Up and Down move by a full grid row.
 - Press **Escape** or select **×** to close the viewer.
@@ -66,8 +67,8 @@ The browser-style context menu is intentionally disabled.
 
 Select a photograph in the grid to display its properties in the right-side Details panel:
 
-- Filename, path, format, file size, and image dimensions are displayed from the local catalogue immediately.
-- Star Rating and location coordinates (latitude/longitude) are also displayed and editable.
+- Filename, path, combined format and file size, and image dimensions are displayed from the local catalogue immediately.
+- Star rating, manual tags, and location coordinates (latitude/longitude) are also displayed. Ratings and tags are editable.
 - When embedded EXIF is available, camera model/make, lens model, and capture date are also shown.
 - Photos without embedded EXIF or star ratings explicitly state that no embedded photo metadata is available.
 
@@ -89,6 +90,6 @@ If you find bugs or have feature requests, please submit them on the [GitHub Iss
 
 ## Current Limitations
 
-- The application has no keyword editing, albums, file moving, export, or AI features yet.
+- The application has no albums, file moving, export, or AI features yet.
 - Large folders may take time to scan and thumbnail on their first run; the grid, Details panel, and viewer remain available while this work runs.
 - The application has been manually tested on macOS; Windows testing is still required.

@@ -6,15 +6,15 @@ Peter’s Photo Manager is a local-first desktop photo manager for macOS and Win
 
 ## Current Status
 
-Current version: `0.3.0-alpha.6`.
+Current version: `0.3.0-alpha.7`.
 
 > [!IMPORTANT]
 > * **Download Release Installers**: Production build setup files (such as `.dmg` for macOS) are available in the [exports/](exports/) directory.
 > * **Submit Issues**: If you run into bugs or have feature suggestions, please submit them on the [GitHub Issues](https://github.com/pbeens/peters-photo-manager/issues) page.
 
-The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails with a visible cache-size indicator, a persistent local SQLite catalogue, instant basic Details-panel updates, and a cached-first viewer that loads the original image in the background. Thumbnail size and sorting preferences persist between launches. Viewer navigation updates in place with the selected thumbnail and details.
+The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails with a visible cache-size indicator, a persistent local SQLite catalogue, instant basic Details-panel updates, manual photo tags with autocomplete, and a cached-first viewer that loads the original image in the background. Thumbnail size and sorting preferences persist between launches. Viewer navigation updates in place with the selected thumbnail and details.
 
-Albums, editing (except star ratings), and AI features have not been implemented yet.
+Albums, broader editing beyond ratings and manual tags, and AI features have not been implemented yet.
 
 The application is an early development build. Releases use Semantic Versioning with prerelease labels such as `alpha.1`.
 
@@ -127,7 +127,7 @@ Releases will use semantic versioning:
 
 Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
 
-The current version is `0.3.0-alpha.6`. When changing the application version, keep the version values synchronized in:
+The current version is `0.3.0-alpha.7`. When changing the application version, keep the version values synchronized in:
 
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/Cargo.toml`

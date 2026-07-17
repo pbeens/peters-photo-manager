@@ -1,5 +1,37 @@
 # Prompt Log
 
+## 2026-07-17T14:47:18-0400 — Finalize alpha.7 release
+
+- Prompt summary: Verify release documentation, merge the completed photo-tagging work into `main`, package the application, and prepare version `0.3.0-alpha.7` for release.
+
+## 2026-07-17T14:44:53-0400 — Refine combined format and size label
+
+- Prompt summary: Change the combined Details-pane label from `Format/Size` to `Format · Size` to match the value separator.
+
+## 2026-07-17T14:44:17-0400 — Rename consolidated format and size label
+
+- Prompt summary: Change the Details-pane label for the combined format and file-size value to `Format/Size`.
+
+## 2026-07-17T14:43:33-0400 — Consolidate format and file-size details
+
+- Prompt summary: Display a selected photograph's file size alongside its format in the Details pane to reduce vertical space.
+
+## 2026-07-17T14:37:21-0400 — Fix tag autocomplete suggestions not visible after restart
+
+- Prompt summary: Investigate and correct the missing `Peter` tag suggestion when adding the same tag to another photo after restarting the application.
+
+## 2026-07-17T14:34:14-0400 — Diagnose tag autocomplete not appearing in running app
+
+- Prompt summary: Check why a previously added tag such as `Peter` is not suggested when typing a matching prefix on another photo.
+
+## 2026-07-17T14:31:48-0400 — Diagnose mistyped Tauri dev command
+
+- Prompt summary: Explain why the desktop development command fails when typed as `npm run tori dev` and identify the correct package script.
+
+## 2026-07-17T14:27:49-0400 — Add tag autocomplete across photos
+
+- Prompt summary: Fix manual photo tagging so previously used tags, such as `Animal`, are suggested for autocomplete when adding tags to another selected photo.
+
 ## 2026-07-17T12:05:00-0400 — Insert application screenshot in README.md
 
 - Prompt summary: Insert the application screenshot image tag `![Peter’s Photo Manager Screenshot](project-docs/screenshots/screenshot.png)` right below the main title in `README.md`.

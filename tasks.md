@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Phase 6 interactive ratings and embedded EXIF/XMP metadata integration — completed.
+Phase 7 manual photo tagging and catalogue autocomplete — completed.
 
 ## Next Tasks
 
@@ -29,6 +29,8 @@ Phase 6 interactive ratings and embedded EXIF/XMP metadata integration — compl
   - **Delete from disk** deletes the original file, cached thumbnail, and catalogue entry.
   - Context menu, Delete, and Backspace open the same explicit choice; the confirmation cannot be skipped.
 - [x] Define the first public test package (0.3.0-alpha.6 DMG generated).
+- [x] Package the 0.3.0-alpha.7 macOS release.
+- [ ] Manually smoke-test the 0.3.0-alpha.7 macOS release before public distribution.
 
 ## Open Questions
 

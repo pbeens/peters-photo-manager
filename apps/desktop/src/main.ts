@@ -147,6 +147,46 @@ type ImageMetadata = {
   keywords?: string[];
 };
 let selectedMetadata: ImageMetadata | null = null;
+let allKnownTags: string[] = [];
+
+async function loadAllCatalogTags(): Promise<void> {
+  try {
+    allKnownTags = await invoke<string[]>("get_all_catalog_tags");
+  } catch (error) {
+    console.error("Failed to load catalog tags:", error);
+  }
+}
+
+function normalizeTag(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function addKnownTag(tag: string): void {
+  const trimmedTag = tag.trim();
+  if (!trimmedTag) {
+    return;
+  }
+  if (!allKnownTags.some((knownTag) => normalizeTag(knownTag) === normalizeTag(trimmedTag))) {
+    allKnownTags = [...allKnownTags, trimmedTag].sort((a, b) =>
+      a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase()),
+    );
+  }
+}
+
+function matchingKnownTags(value: string, currentTags: string[]): string[] {
+  const normalizedValue = normalizeTag(value);
+  if (!normalizedValue) {
+    return [];
+  }
+
+  const assignedTags = new Set(currentTags.map(normalizeTag));
+  return allKnownTags
+    .filter((tag) => {
+      const normalizedTag = normalizeTag(tag);
+      return normalizedTag.startsWith(normalizedValue) && !assignedTags.has(normalizedTag);
+    })
+    .slice(0, 8);
+}
 
 
 function escapeHtml(value: string): string {
@@ -369,12 +409,8 @@ function renderDetailsContent(): string {
     </div>
     ${metadata ? `
       <div class="details-group">
-        <label>Format</label>
-        <p>${escapeHtml(metadata.format)}</p>
-      </div>
-      <div class="details-group">
-        <label>File Size</label>
-        <p>${formatBytes(metadata.fileSize)}</p>
+        <label>Format · Size</label>
+        <p>${escapeHtml(metadata.format)} · ${formatBytes(metadata.fileSize)}</p>
       </div>
       <div class="details-group">
         <label>Dimensions</label>
@@ -439,26 +475,225 @@ function renderDetailsContent(): string {
           ].filter(Boolean).join(" · ")}</p>
         </div>
       ` : ""}
-      ${metadata.keywords ? `
-        <div class="details-group">
-          <label>Keywords</label>
-          <div class="details-keywords">
-            ${metadata.keywords.map(kw => `<span class="keyword-tag">${escapeHtml(kw)}</span>`).join("")}
-          </div>
+      <div class="details-group">
+        <label>Tags</label>
+        <div class="tags-container">
+          ${(metadata.keywords || []).map(kw => `
+            <span class="tag-pill">
+              ${escapeHtml(kw)}
+              <button class="tag-remove-button" data-remove-tag="${escapeHtml(kw)}" type="button" title="Remove tag">&times;</button>
+            </span>
+          `).join("")}
         </div>
-      ` : ""}
+        <div class="add-tag-wrapper">
+          <input type="text" id="add-tag-input" class="add-tag-input" placeholder="Add tag..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="tag-suggestions">
+          <div id="tag-suggestions" class="tag-suggestions" role="listbox" hidden></div>
+        </div>
+      </div>
     ` : `<div class="details-loading">${escapeHtml(metadataError ?? "Loading photo details…")}</div>`}
   </div>`;
 }
 
+async function addPhotoTag(path: string, tag: string): Promise<void> {
+  const metadata = catalogMetadata.get(path) ?? selectedMetadata;
+  if (!metadata) return;
+
+  const currentTags = metadata.keywords || [];
+  // Case-insensitive duplicate check
+  if (currentTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+    const input = document.querySelector<HTMLInputElement>("#add-tag-input");
+    if (input) input.value = "";
+    return;
+  }
+
+  const updatedTags = [...currentTags, tag];
+
+  try {
+    // 1. Backend update
+    await invoke<void>("set_photo_keywords", { path, keywords: updatedTags });
+
+    // 2. Update local state
+    metadata.keywords = updatedTags;
+    addKnownTag(tag);
+    if (selectedThumbnailPath === path && selectedMetadata) {
+      selectedMetadata.keywords = updatedTags;
+    }
+
+    // 3. Reload tags list and refresh UI
+    await loadAllCatalogTags();
+    updateSelectionUI();
+    errorMessage = "";
+  } catch (error) {
+    console.error("Failed to add photo tag:", error);
+    errorMessage = String(error);
+    render();
+  }
+}
+
+async function removePhotoTag(path: string, tag: string): Promise<void> {
+  const metadata = catalogMetadata.get(path) ?? selectedMetadata;
+  if (!metadata) return;
+
+  const currentTags = metadata.keywords || [];
+  const updatedTags = currentTags.filter(t => t !== tag);
+
+  try {
+    // 1. Backend update
+    await invoke<void>("set_photo_keywords", { path, keywords: updatedTags });
+
+    // 2. Update local state
+    metadata.keywords = updatedTags;
+    if (selectedThumbnailPath === path && selectedMetadata) {
+      selectedMetadata.keywords = updatedTags;
+    }
+
+    // 3. Reload tags list and refresh UI
+    await loadAllCatalogTags();
+    updateSelectionUI();
+    errorMessage = "";
+  } catch (error) {
+    console.error("Failed to remove photo tag:", error);
+    errorMessage = String(error);
+    render();
+  }
+}
+
+function wireTagAutocomplete(tagInput: HTMLInputElement, suggestionsHost: HTMLElement, path: string): void {
+  let suggestions: string[] = [];
+  let activeIndex = 0;
+
+  const metadata = catalogMetadata.get(path) ?? selectedMetadata;
+  const currentTags = (): string[] => metadata?.keywords ?? [];
+
+  const hideSuggestions = (): void => {
+    suggestions = [];
+    activeIndex = 0;
+    suggestionsHost.hidden = true;
+    suggestionsHost.innerHTML = "";
+    tagInput.setAttribute("aria-expanded", "false");
+    tagInput.removeAttribute("aria-activedescendant");
+  };
+
+  const renderSuggestions = (): void => {
+    suggestions = matchingKnownTags(tagInput.value, currentTags());
+    activeIndex = Math.min(activeIndex, Math.max(0, suggestions.length - 1));
+
+    if (!suggestions.length) {
+      hideSuggestions();
+      return;
+    }
+
+    suggestionsHost.hidden = false;
+    tagInput.setAttribute("aria-expanded", "true");
+    tagInput.setAttribute("aria-activedescendant", `tag-suggestion-${activeIndex}`);
+    suggestionsHost.innerHTML = suggestions
+      .map((tag, index) => `
+        <button
+          type="button"
+          id="tag-suggestion-${index}"
+          class="tag-suggestion-option ${index === activeIndex ? "is-active" : ""}"
+          data-tag-suggestion="${escapeHtml(tag)}"
+          role="option"
+          aria-selected="${index === activeIndex ? "true" : "false"}"
+        >${escapeHtml(tag)}</button>
+      `)
+      .join("");
+  };
+
+  const commitTag = (tag: string): void => {
+    const normalizedValue = normalizeTag(tag);
+    const knownTag = allKnownTags.find((candidate) => normalizeTag(candidate) === normalizedValue);
+    const selectedTag = knownTag ?? tag.trim();
+
+    if (selectedTag) {
+      tagInput.value = "";
+      hideSuggestions();
+      void addPhotoTag(path, selectedTag);
+    }
+  };
+
+  tagInput.addEventListener("input", renderSuggestions);
+  tagInput.addEventListener("focus", renderSuggestions);
+  tagInput.addEventListener("blur", () => {
+    window.setTimeout(hideSuggestions, 120);
+  });
+  tagInput.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" && suggestions.length) {
+      event.preventDefault();
+      activeIndex = (activeIndex + 1) % suggestions.length;
+      renderSuggestions();
+      return;
+    }
+
+    if (event.key === "ArrowUp" && suggestions.length) {
+      event.preventDefault();
+      activeIndex = (activeIndex - 1 + suggestions.length) % suggestions.length;
+      renderSuggestions();
+      return;
+    }
+
+    if ((event.key === "Enter" || event.key === "Tab") && suggestions.length) {
+      event.preventDefault();
+      commitTag(suggestions[activeIndex] ?? suggestions[0]);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      commitTag(tagInput.value);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      hideSuggestions();
+    }
+  });
+
+  suggestionsHost.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+  suggestionsHost.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const option = target.closest<HTMLElement>("[data-tag-suggestion]");
+    const tag = option?.dataset.tagSuggestion;
+    if (tag) {
+      commitTag(tag);
+    }
+  });
+}
+
 function updateSelectionUI(): void {
+  const path = selectedThumbnailPath;
   document.querySelectorAll<HTMLButtonElement>("[data-thumbnail-path]").forEach((card) => {
-    card.classList.toggle("is-selected", card.dataset.thumbnailPath === selectedThumbnailPath);
+    card.classList.toggle("is-selected", card.dataset.thumbnailPath === path);
   });
   const detailsPanel = document.querySelector<HTMLElement>("#details-panel");
   const detailsBody = detailsPanel?.querySelector<HTMLElement>("#details-body");
   if (detailsBody) {
     detailsBody.innerHTML = renderDetailsContent();
+
+    // Wire up add-tag-input listener
+    const tagInput = detailsBody.querySelector<HTMLInputElement>("#add-tag-input");
+    const suggestionsHost = detailsBody.querySelector<HTMLElement>("#tag-suggestions");
+    if (tagInput && suggestionsHost && path) {
+      wireTagAutocomplete(tagInput, suggestionsHost, path);
+    }
+
+    // Wire up tag remove buttons
+    detailsBody.querySelectorAll<HTMLButtonElement>("[data-remove-tag]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const tagToRemove = btn.dataset.removeTag;
+        if (tagToRemove && path) {
+          void removePhotoTag(path, tagToRemove);
+        }
+      });
+    });
   }
 }
 
@@ -966,6 +1201,7 @@ async function scanSelectedFolder(): Promise<void> {
     // 3. Re-load from catalog to get new thumbnail paths & metadata
     await loadCatalogFiles(folderToScan);
     await refreshCacheSize();
+    await loadAllCatalogTags();
 
     if (result.errors.length > 0) {
       errorMessage = `${result.errors.length} error(s) occurred during background scan.`;
@@ -1294,6 +1530,7 @@ async function initialize(): Promise<void> {
     });
     settings = await invoke<AppSettings>("load_settings");
     await refreshCacheSize();
+    await loadAllCatalogTags();
     thumbnailSize = settings.thumbnailSize;
     thumbnailSortKey = settings.thumbnailSortKey;
     thumbnailSortAscending = settings.thumbnailSortAscending;

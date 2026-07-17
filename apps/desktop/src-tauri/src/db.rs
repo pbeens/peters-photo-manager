@@ -348,6 +348,30 @@ pub fn update_file_keywords(
     Ok(())
 }
 
+pub fn get_unique_keywords(conn: &Connection) -> Result<Vec<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT keywords FROM files WHERE keywords IS NOT NULL AND status = 'active'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let val: String = row.get(0)?;
+        Ok(val)
+    })?;
+
+    let mut all_tags = std::collections::HashSet::new();
+    for kw_str in rows.flatten() {
+        for tag in kw_str.split(';') {
+            let trimmed = tag.trim().to_string();
+            if !trimmed.is_empty() {
+                all_tags.insert(trimmed);
+            }
+        }
+    }
+
+    let mut sorted_tags: Vec<String> = all_tags.into_iter().collect();
+    sorted_tags.sort_by_key(|tag| tag.to_lowercase());
+    Ok(sorted_tags)
+}
+
 fn map_row(row: &rusqlite::Row) -> Result<IndexedFile, rusqlite::Error> {
     let keywords_str: Option<String> = row.get(20)?;
     let keywords = keywords_str.map(|s| {
@@ -467,6 +491,24 @@ mod tests {
         assert_eq!(active.len(), 2);
         assert_eq!(active[0].name, "beach.jpg");
         assert_eq!(active[1].name, "forest.png");
+
+        // Test unique keywords retrieval
+        let unique_tags = get_unique_keywords(&conn).expect("Retrieve unique keywords");
+        assert_eq!(unique_tags.len(), 2);
+        assert_eq!(unique_tags[0], "beach");
+        assert_eq!(unique_tags[1], "travel");
+
+        // Test update keywords
+        update_file_keywords(
+            &conn,
+            "/Users/test/photos/beach.jpg",
+            Some(&["beach".to_string(), "sunset".to_string()]),
+        )
+        .expect("Update keywords");
+        let unique_tags_updated = get_unique_keywords(&conn).expect("Retrieve unique keywords");
+        assert_eq!(unique_tags_updated.len(), 2);
+        assert_eq!(unique_tags_updated[0], "beach");
+        assert_eq!(unique_tags_updated[1], "sunset");
 
         // Verify keyword semicolon separation
         assert_eq!(active[0].keywords.as_ref().unwrap().len(), 2);

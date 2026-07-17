@@ -322,8 +322,12 @@ fn write_metadata_rating(photo_path: &Path, rating: Option<u16>) -> Result<(), S
     et.set_new_value("xmp:Rating", rating_val.as_deref());
     et.set_new_value("Rating", rating_val.as_deref());
 
-    let parent = photo_path.parent().ok_or_else(|| "Invalid file path".to_string())?;
-    let file_name = photo_path.file_name().ok_or_else(|| "Invalid file name".to_string())?;
+    let parent = photo_path
+        .parent()
+        .ok_or_else(|| "Invalid file path".to_string())?;
+    let file_name = photo_path
+        .file_name()
+        .ok_or_else(|| "Invalid file name".to_string())?;
     let temp_name = format!("{}.tmp", file_name.to_string_lossy());
     let temp_path = parent.join(temp_name);
 
@@ -367,6 +371,80 @@ fn set_photo_rating(
     Ok(())
 }
 
+fn write_metadata_keywords(photo_path: &Path, keywords: &[String]) -> Result<(), String> {
+    let mut et = exiftool_rs::ExifTool::new();
+
+    // IPTC stores each keyword separately, while XMP expects one comma-delimited bag.
+    for kw in keywords {
+        et.set_new_value("IPTC:Keywords", Some(kw));
+    }
+    let xmp_subject = keywords.join(", ");
+    et.set_new_value(
+        "XMP:Subject",
+        (!xmp_subject.is_empty()).then_some(xmp_subject.as_str()),
+    );
+
+    let parent = photo_path
+        .parent()
+        .ok_or_else(|| "Invalid file path".to_string())?;
+    let file_name = photo_path
+        .file_name()
+        .ok_or_else(|| "Invalid file name".to_string())?;
+    let temp_name = format!("{}.tmp", file_name.to_string_lossy());
+    let temp_path = parent.join(temp_name);
+
+    et.write_info(photo_path, &temp_path)
+        .map_err(|e| format!("Failed to write metadata: {:?}", e))?;
+
+    std::fs::rename(&temp_path, photo_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to overwrite original file: {}", e)
+    })?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_photo_keywords(
+    db_state: tauri::State<'_, DbState>,
+    path: String,
+    keywords: Vec<String>,
+) -> Result<(), String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+
+    let photo_path = Path::new(&path);
+    if !photo_path.exists() {
+        return Err("Photo file does not exist on disk".to_string());
+    }
+
+    write_metadata_keywords(photo_path, &keywords)?;
+
+    db::update_file_keywords(
+        &conn,
+        &path,
+        if keywords.is_empty() {
+            None
+        } else {
+            Some(&keywords)
+        },
+    )
+    .map_err(|err| err.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_all_catalog_tags(db_state: tauri::State<'_, DbState>) -> Result<Vec<String>, String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+
+    db::get_unique_keywords(&conn).map_err(|err| err.to_string())
+}
 
 async fn perform_scan_and_sync(
     app: AppHandle,
@@ -793,6 +871,30 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
         }
     }
 
+    // Fallback: if keywords is None, extract them using exiftool-rs.
+    if keywords.is_none() {
+        let et = exiftool_rs::ExifTool::new();
+        if let Ok(tags) = et.extract_info(file_path) {
+            let mut extracted_keywords = Vec::new();
+            for tag in &tags {
+                if tag.name == "Keywords" || tag.name == "Subject" {
+                    extracted_keywords.extend(
+                        tag.print_value
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|item| !item.is_empty())
+                            .map(ToOwned::to_owned),
+                    );
+                }
+            }
+            extracted_keywords.sort();
+            extracted_keywords.dedup();
+            if !extracted_keywords.is_empty() {
+                keywords = Some(extracted_keywords);
+            }
+        }
+    }
+
     Ok(ImageMetadata {
         file_size,
         dimensions: (width, height),
@@ -911,8 +1013,46 @@ pub fn run() {
             delete_from_disk,
             set_photo_rating,
             log_frontend_error,
-            show_item_in_file_manager
+            show_item_in_file_manager,
+            set_photo_keywords,
+            get_all_catalog_tags
         ])
         .run(tauri::generate_context!())
         .expect("error while running Peter's Photo Manager");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_write_metadata_keywords() {
+        let minimal_png: &[u8] = &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+            8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84, 8, 215, 99, 96, 0, 2, 0,
+            0, 5, 0, 1, 226, 38, 5, 155, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        ];
+
+        let temp_dir = std::env::temp_dir();
+        let test_file_path =
+            temp_dir.join(format!("test_metadata_keywords_{}.png", std::process::id()));
+        fs::write(&test_file_path, minimal_png).expect("Write test image");
+
+        // Write tags
+        let tags = vec!["nature".to_string(), "hiking".to_string()];
+        write_metadata_keywords(&test_file_path, &tags).expect("Write keywords");
+
+        // Verify using get_image_metadata_internal (which uses the fallback ExifTool parser)
+        let meta =
+            get_image_metadata_internal(&test_file_path.to_string_lossy()).expect("Read metadata");
+        let kws = meta.keywords.expect("Keywords must exist");
+
+        assert_eq!(kws.len(), 2);
+        assert!(kws.contains(&"nature".to_string()));
+        assert!(kws.contains(&"hiking".to_string()));
+
+        // Clean up
+        let _ = fs::remove_file(&test_file_path);
+    }
 }

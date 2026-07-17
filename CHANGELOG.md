@@ -4,6 +4,17 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.7 — 2026-07-17
+
+### Added
+
+- **Manual photo tags**: Add or remove tags in the Details panel. Changes are written to IPTC/XMP metadata and retained in the local catalogue.
+- **Manual tag autocomplete**: The Details panel suggests previously used catalogue tags while adding tags to another photo, with click and keyboard selection support.
+
+### Changed
+
+- **Compact file facts**: Format and file size are presented together in the Details panel.
+
 ## 0.3.0-alpha.6 — 2026-07-17
 
 ### Added
