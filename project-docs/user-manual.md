@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.3` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts and available EXIF information.
+`0.3.0-alpha.4` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts and available EXIF information.
 
 ## Start the Application
 
@@ -37,7 +37,8 @@ The grid supports JPEG, PNG, and WebP files.
 
 - Drag the **Thumbnail size** slider to resize the grid.
 - Click a thumbnail to select it and immediately show its filename, path, format, size, and dimensions in the Details panel.
-- Double-click a thumbnail to open it. A large cached preview appears first; the original file replaces it when ready. The caption reports if the original could not be loaded.
+- Double-click a thumbnail to open it. A large cached preview appears first; the original file replaces it when ready. The viewer fits the complete image within the available window. The caption reports if the original could not be loaded.
+- With the viewer closed, use the **Arrow keys** to move the grid selection and **Enter** or **Space** to open the selected image. Up and Down move by a full grid row.
 - Press **Escape** or select **×** to close the viewer.
 - Browse through photographs sequentially using the **Left/Right Arrow** keys on your keyboard, or the `<` and `>` button overlays on the screen.
 

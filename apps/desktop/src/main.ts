@@ -64,6 +64,9 @@ type IndexedFile = {
 };
 
 const app = document.querySelector<HTMLElement>("#app");
+const viewerHost = document.createElement("div");
+viewerHost.id = "viewer-host";
+document.body.append(viewerHost);
 const ALL_FOLDERS = "__all_folders__";
 
 let settings: AppSettings = { watchedFolders: [] };
@@ -82,6 +85,7 @@ let thumbnailCacheBytes = 0;
 let hideEmptyFolders = true;
 let scanRequestId = 0;
 let viewerSourcePath: string | null = null;
+let ignoreViewerBackdropClick = false;
 let contextMenu: { sourcePath: string; x: number; y: number } | null = null;
 let errorMessage = "";
 let progressRenderTimer: number | null = null;
@@ -244,6 +248,43 @@ async function selectAndLoadMetadata(path: string | null): Promise<void> {
   }
 }
 
+function gridColumnCount(): number {
+  const grid = document.querySelector<HTMLElement>(".thumbnail-grid");
+  const card = grid?.querySelector<HTMLElement>(".thumbnail-card");
+  if (!grid || !card) {
+    return 1;
+  }
+
+  const columnGap = Number.parseFloat(window.getComputedStyle(grid).columnGap) || 0;
+  return Math.max(1, Math.floor((grid.clientWidth + columnGap) / (card.offsetWidth + columnGap)));
+}
+
+function moveGridSelection(delta: number): void {
+  if (!thumbnails.length) {
+    return;
+  }
+
+  const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
+  const nextIndex = currentIndex < 0
+    ? 0
+    : Math.max(0, Math.min(thumbnails.length - 1, currentIndex + delta));
+  const thumbnail = thumbnails[nextIndex];
+  if (!thumbnail) {
+    return;
+  }
+
+  void selectAndLoadMetadata(thumbnail.sourcePath);
+  window.requestAnimationFrame(() => {
+    document
+      .querySelector<HTMLElement>(`[data-thumbnail-index="${nextIndex}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+}
+
+function isFormControl(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("input, textarea, select, button:not(.thumbnail-card)"));
+}
+
 async function navigateToImage(index: number): Promise<void> {
   if (index >= 0 && index < thumbnails.length) {
     viewerSourcePath = thumbnails[index].sourcePath;
@@ -255,13 +296,67 @@ async function navigateToImage(index: number): Promise<void> {
   }
 }
 
+function openViewer(path: string): void {
+  const thumbnail = thumbnails.find((entry) => entry.sourcePath === path);
+  if (!thumbnail) {
+    return;
+  }
+
+  selectedThumbnailPath = path;
+  selectedMetadata = catalogMetadata.get(path) ?? null;
+  metadataError = null;
+  viewerSourcePath = path;
+  ignoreViewerBackdropClick = true;
+  window.requestAnimationFrame(() => {
+    ignoreViewerBackdropClick = false;
+  });
+  updateSelectionUI();
+  renderViewer();
+  window.requestAnimationFrame(updateViewerUI);
+}
+
+function closeViewer(): void {
+  viewerSourcePath = null;
+  viewerHost.replaceChildren();
+}
+
+function renderViewer(): void {
+  const currentIndex = viewerSourcePath
+    ? thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath)
+    : -1;
+  const thumbnail = currentIndex >= 0 ? thumbnails[currentIndex] : undefined;
+
+  if (!viewerSourcePath || !thumbnail) {
+    viewerHost.replaceChildren();
+    return;
+  }
+
+  viewerHost.innerHTML = `
+    <div class="viewer-backdrop" role="dialog" aria-modal="true">
+      <button class="viewer-close" id="close-viewer" type="button">×</button>
+      <button class="viewer-prev" id="viewer-prev" type="button" ${currentIndex <= 0 ? "disabled" : ""}>&lsaquo;</button>
+      <figure class="viewer">
+        <div class="viewer-media">
+          <img id="viewer-preview" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}" alt="${escapeHtml(thumbnail.name)}" />
+          <img id="viewer-image" src="${escapeHtml(convertFileSrc(viewerSourcePath))}" alt="${escapeHtml(thumbnail.name)}" />
+        </div>
+        <figcaption>
+          <span id="viewer-name">${escapeHtml(thumbnail.name)}</span>
+          <span id="viewer-position">Original image (${currentIndex + 1} of ${thumbnails.length})</span>
+          <span id="viewer-load-state">Loading original image…</span>
+        </figcaption>
+      </figure>
+      <button class="viewer-next" id="viewer-next" type="button" ${currentIndex >= thumbnails.length - 1 ? "disabled" : ""}>&rsaquo;</button>
+    </div>`;
+}
+
 function updateViewerUI(): void {
   if (!viewerSourcePath) {
     return;
   }
-  const viewerImage = document.querySelector<HTMLImageElement>("#viewer-image");
+  const viewerImage = viewerHost.querySelector<HTMLImageElement>("#viewer-image");
   if (!viewerImage) {
-    render();
+    renderViewer();
     window.requestAnimationFrame(updateViewerUI);
     return;
   }
@@ -273,7 +368,7 @@ function updateViewerUI(): void {
   }
   const path = viewerSourcePath;
   const cachedSource = convertFileSrc(thumbnail.thumbnailPath);
-  const previewImage = document.querySelector<HTMLImageElement>("#viewer-preview");
+  const previewImage = viewerHost.querySelector<HTMLImageElement>("#viewer-preview");
   if (previewImage) {
     previewImage.src = cachedSource;
     previewImage.alt = thumbnail.name;
@@ -282,24 +377,24 @@ function updateViewerUI(): void {
   viewerImage.dataset.sourcePath = path;
   viewerImage.src = convertFileSrc(path);
   viewerImage.alt = thumbnail.name;
-  document.querySelector<HTMLElement>("#viewer-name")!.textContent = thumbnail.name;
-  document.querySelector<HTMLElement>("#viewer-position")!.textContent = `Original image (${currentIndex + 1} of ${thumbnails.length})`;
-  document.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Loading original image…";
-  const previousButton = document.querySelector<HTMLButtonElement>("#viewer-prev");
-  const nextButton = document.querySelector<HTMLButtonElement>("#viewer-next");
+  viewerHost.querySelector<HTMLElement>("#viewer-name")!.textContent = thumbnail.name;
+  viewerHost.querySelector<HTMLElement>("#viewer-position")!.textContent = `Original image (${currentIndex + 1} of ${thumbnails.length})`;
+  viewerHost.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Loading original image…";
+  const previousButton = viewerHost.querySelector<HTMLButtonElement>("#viewer-prev");
+  const nextButton = viewerHost.querySelector<HTMLButtonElement>("#viewer-next");
   if (previousButton) previousButton.disabled = currentIndex <= 0;
   if (nextButton) nextButton.disabled = currentIndex >= thumbnails.length - 1;
 
   const markOriginalLoaded = () => {
     if (viewerSourcePath === path && viewerImage.dataset.sourcePath === path) {
       viewerImage.classList.add("is-loaded");
-      document.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Original image";
+      viewerHost.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Original image";
     }
   };
   viewerImage.onload = markOriginalLoaded;
   viewerImage.onerror = () => {
     if (viewerSourcePath === path && viewerImage.dataset.sourcePath === path) {
-      document.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Original image could not load; showing cached preview.";
+      viewerHost.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Original image could not load; showing cached preview.";
     }
   };
   if (viewerImage.complete && viewerImage.naturalWidth > 0) {
@@ -312,10 +407,20 @@ function render(): void {
     return;
   }
 
+  const folderList = document.querySelector<HTMLElement>(".folder-list");
+  const filePanel = document.querySelector<HTMLElement>(".file-panel");
+  const savedFolderScroll = {
+    top: folderList?.scrollTop ?? 0,
+    left: folderList?.scrollLeft ?? 0,
+  };
+  const savedFileScroll = {
+    top: filePanel?.scrollTop ?? 0,
+    left: filePanel?.scrollLeft ?? 0,
+  };
+
   const selectedFolder = activeFolder;
   const isAllFolders = selectedFolder === ALL_FOLDERS;
   const selectedThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
-  const currentIndex = viewerSourcePath ? thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath) : -1;
   const selectedHasEmbeddedMetadata = selectedMetadata ? hasEmbeddedMetadata(selectedMetadata) : false;
   const files = scanResult?.files ?? [];
   const status = isScanning
@@ -383,24 +488,6 @@ function render(): void {
         </section>
 
         ${selectedFolder ? `<footer class="grid-footer"><span>${thumbnails.length} image thumbnail${thumbnails.length === 1 ? "" : "s"} ready · Cache ${formatBytes(thumbnailCacheBytes)}</span><label class="thumbnail-size-control" for="thumbnail-size"><span>Small</span><input id="thumbnail-size" type="range" min="120" max="300" step="10" value="${thumbnailSize}" /><span>Large</span><output id="thumbnail-size-value">${thumbnailSize}px</output></label></footer>` : ""}
-        ${viewerSourcePath ? `
-          <div class="viewer-backdrop" role="dialog" aria-modal="true">
-            <button class="viewer-close" id="close-viewer" type="button">×</button>
-            <button class="viewer-prev" id="viewer-prev" type="button" ${currentIndex <= 0 ? "disabled" : ""}>&lsaquo;</button>
-            <figure class="viewer">
-              <div class="viewer-media">
-                <img id="viewer-preview" src="${escapeHtml(convertFileSrc(thumbnails[currentIndex]?.thumbnailPath ?? viewerSourcePath))}" alt="${escapeHtml(folderName(viewerSourcePath))}" />
-                <img id="viewer-image" src="${escapeHtml(convertFileSrc(viewerSourcePath))}" alt="${escapeHtml(folderName(viewerSourcePath))}" />
-              </div>
-              <figcaption>
-                <span id="viewer-name">${escapeHtml(folderName(viewerSourcePath))}</span>
-                <span id="viewer-position">Original image (${currentIndex + 1} of ${thumbnails.length})</span>
-                <span id="viewer-load-state">Loading original image…</span>
-              </figcaption>
-            </figure>
-            <button class="viewer-next" id="viewer-next" type="button" ${currentIndex === -1 || currentIndex >= thumbnails.length - 1 ? "disabled" : ""}>&rsaquo;</button>
-          </div>
-        ` : ""}
         ${contextMenu ? `<menu class="image-context-menu" style="left:${contextMenu.x}px;top:${contextMenu.y}px">${!viewerSourcePath ? `<li><button id="context-open-preview" type="button">Open preview</button></li>` : ""}<li><button id="context-copy-name" type="button">Copy filename</button></li><li><button id="context-copy-path" type="button">Copy complete path</button></li><li><button id="context-copy-image" type="button">Copy image</button></li></menu>` : ""}
 
         ${scanResult && scanResult.unreadableEntries > 0 ? `<p class="warning-message">${scanResult.unreadableEntries} unreadable item${scanResult.unreadableEntries === 1 ? " was" : "s were"} skipped safely.</p>` : ""}
@@ -502,6 +589,8 @@ function render(): void {
     </section>
   `;
 
+  renderViewer();
+
   document.querySelector("#add-folder")?.addEventListener("click", chooseFolder);
   document.querySelector("#remove-folder")?.addEventListener("click", removeFolder);
   document.querySelector("#reset-catalogue")?.addEventListener("click", async () => {
@@ -511,6 +600,7 @@ function render(): void {
     );
     if (!confirmed) return;
     try {
+      closeViewer();
       await invoke<void>("reset_catalogue");
       scanResult = null;
       thumbnails = [];
@@ -537,20 +627,12 @@ function render(): void {
       value.textContent = `${thumbnailSize}px`;
     }
   });
-  document.querySelector("#close-viewer")?.addEventListener("click", () => { viewerSourcePath = null; render(); });
-  document.querySelector(".viewer-backdrop")?.addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) {
-      viewerSourcePath = null;
-      render();
-    }
+  document.querySelector("#context-open-preview")?.addEventListener("click", () => {
+    const path = contextMenu?.sourcePath;
+    contextMenu = null;
+    if (path) openViewer(path);
+    else render();
   });
-  document.querySelector("#viewer-prev")?.addEventListener("click", () => {
-    void navigateToImage(currentIndex - 1);
-  });
-  document.querySelector("#viewer-next")?.addEventListener("click", () => {
-    void navigateToImage(currentIndex + 1);
-  });
-  document.querySelector("#context-open-preview")?.addEventListener("click", () => { viewerSourcePath = contextMenu?.sourcePath ?? null; contextMenu = null; render(); });
   document.querySelector("#context-copy-name")?.addEventListener("click", async () => {
     if (contextMenu) await navigator.clipboard.writeText(folderName(contextMenu.sourcePath));
     contextMenu = null;
@@ -576,20 +658,24 @@ function render(): void {
     contextMenu = null;
     render();
   });
-  if (viewerSourcePath) {
-    document.querySelector(".viewer img")?.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      contextMenu = { sourcePath: viewerSourcePath ?? "", x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
-      render();
-    });
-  }
   document.querySelectorAll<HTMLElement>("[data-toggle-folder]").forEach((toggle) => toggle.addEventListener("click", (event) => { event.stopPropagation(); const path = toggle.dataset.toggleFolder; if (path) { expandedFolders.has(path) ? expandedFolders.delete(path) : expandedFolders.add(path); render(); } }));
-  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedMetadata = null; render(); void scanSelectedFolder(); }));
+  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { closeViewer(); activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedMetadata = null; render(); void scanSelectedFolder(); }));
+
+  const restoredFolderList = document.querySelector<HTMLElement>(".folder-list");
+  if (restoredFolderList) {
+    restoredFolderList.scrollTop = savedFolderScroll.top;
+    restoredFolderList.scrollLeft = savedFolderScroll.left;
+  }
+  const restoredFilePanel = document.querySelector<HTMLElement>(".file-panel");
+  if (restoredFilePanel) {
+    restoredFilePanel.scrollTop = savedFileScroll.top;
+    restoredFilePanel.scrollLeft = savedFileScroll.left;
+  }
 }
 
 async function chooseFolder(): Promise<void> {
   errorMessage = "";
+  closeViewer();
   const selected = await open({
     directory: true,
     multiple: false,
@@ -619,6 +705,7 @@ async function chooseFolder(): Promise<void> {
 
 async function removeFolder(): Promise<void> {
   try {
+    closeViewer();
     const selectedFolder = activeFolder;
     if (!selectedFolder) return;
     const root = settings.watchedFolders.find((folder) => selectedFolder === folder || selectedFolder.startsWith(`${folder}/`)) ?? selectedFolder;
@@ -740,6 +827,41 @@ async function refreshCacheSize(): Promise<void> {
 async function initialize(): Promise<void> {
   try {
     document.addEventListener("contextmenu", (event) => event.preventDefault());
+    viewerHost.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (target.closest("#close-viewer")) {
+        closeViewer();
+        return;
+      }
+      if (target.closest("#viewer-prev")) {
+        const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
+        void navigateToImage(currentIndex - 1);
+        return;
+      }
+      if (target.closest("#viewer-next")) {
+        const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
+        void navigateToImage(currentIndex + 1);
+        return;
+      }
+      if (target.classList.contains("viewer-backdrop") && !ignoreViewerBackdropClick) {
+        closeViewer();
+      }
+    });
+    viewerHost.addEventListener("contextmenu", (event) => {
+      if (!viewerSourcePath) {
+        return;
+      }
+      event.preventDefault();
+      contextMenu = {
+        sourcePath: viewerSourcePath,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      render();
+    });
     document.addEventListener("click", () => {
       if (contextMenu) { contextMenu = null; render(); }
     });
@@ -752,6 +874,14 @@ async function initialize(): Promise<void> {
       const index = Number(card?.dataset.thumbnailIndex);
       const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
       if (thumbnail) {
+        // Tauri's WebView reliably delivers the second click even when its
+        // synthesized dblclick event is delayed or lost during a DOM update.
+        if (event.detail >= 2) {
+          event.preventDefault();
+          event.stopPropagation();
+          openViewer(thumbnail.sourcePath);
+          return;
+        }
         void selectAndLoadMetadata(thumbnail.sourcePath);
       }
     });
@@ -763,15 +893,10 @@ async function initialize(): Promise<void> {
       const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
       const index = Number(card?.dataset.thumbnailIndex);
       const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
-      if (!thumbnail) {
-        return;
+      if (thumbnail) {
+        event.preventDefault();
+        openViewer(thumbnail.sourcePath);
       }
-      selectedThumbnailPath = thumbnail.sourcePath;
-      selectedMetadata = catalogMetadata.get(thumbnail.sourcePath) ?? null;
-      viewerSourcePath = thumbnail.sourcePath;
-      metadataError = null;
-      updateSelectionUI();
-      updateViewerUI();
     });
     app?.addEventListener("contextmenu", (event) => {
       const target = event.target;
@@ -795,19 +920,43 @@ async function initialize(): Promise<void> {
     document.addEventListener("keydown", (event) => {
       if (viewerSourcePath) {
         if (event.key === "Escape") {
-          viewerSourcePath = null;
-          render();
+          event.preventDefault();
+          closeViewer();
         } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
           const currentIndex = thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath);
           if (currentIndex > 0) {
             void navigateToImage(currentIndex - 1);
           }
         } else if (event.key === "ArrowRight") {
+          event.preventDefault();
           const currentIndex = thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath);
           if (currentIndex >= 0 && currentIndex < thumbnails.length - 1) {
             void navigateToImage(currentIndex + 1);
           }
         }
+        return;
+      }
+
+      if (isFormControl(event.target) || !thumbnails.length) {
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveGridSelection(-1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveGridSelection(1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveGridSelection(-gridColumnCount());
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveGridSelection(gridColumnCount());
+      } else if ((event.key === "Enter" || event.key === " ") && selectedThumbnailPath) {
+        event.preventDefault();
+        openViewer(selectedThumbnailPath);
       }
     });
     await listen<ScanProgress>("scan-progress", (event) => {

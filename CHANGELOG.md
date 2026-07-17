@@ -4,11 +4,26 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.4 — 2026-07-17
+
+### Fixed
+
+- **Reliable viewer mounting**: The viewer is now mounted in a persistent overlay host instead of rebuilding the thumbnail grid during the open gesture.
+- **Thumbnail activation compatibility**: Both the native double-click event and the second thumbnail click open the viewer through the same path.
+- **Folder-change state leak**: Changing, adding, removing, or resetting folders now closes the viewer instead of allowing a delayed image open in a new folder view.
+- **Fit-to-window image sizing**: Viewer images preserve their complete aspect ratio within the available overlay area instead of filling and clipping the media box.
+- **Browsing-position preservation**: Full interface refreshes now retain the folder-list and thumbnail-panel scroll positions.
+
+### Added
+
+- **Keyboard thumbnail navigation**: Arrow keys move the grid selection by item or row; Enter and Space open the selected image.
+
 ## 0.3.0-alpha.3 — 2026-07-16
 
 ### Changed
 
 - **Responsive browsing repair**: Thumbnail selection updates the Details panel without rebuilding the thumbnail grid; scan progress updates status text only.
+- **Persistent viewer overlay**: Opening or navigating the viewer updates a dedicated overlay instead of rebuilding the thumbnail grid; folder changes close it.
 - **Details-panel behavior**: File facts are shown immediately; the current panel displays camera, lens, and capture date when those EXIF fields are available.
 - **Cached-first viewer**: The viewer shows a cached thumbnail immediately, then loads the full-resolution original in the background. Previous/next navigation updates in place.
 - **Non-blocking scan metadata**: Scan-time image dimensions and EXIF extraction run on blocking workers, preserving the async command runtime for interface requests.

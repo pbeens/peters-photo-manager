@@ -1,5 +1,41 @@
 # Prompt Log
 
+## 2026-07-17T06:08:00-0400 — Archive the alpha.4 disk image
+
+- Prompt summary: Move the newly created alpha.4 macOS disk image from the Tauri build bundle into the project exports folder.
+
+## 2026-07-17T06:05:00-0400 — Add thumbnail-grid keyboard navigation
+
+- Prompt summary: Apply the audit's keyboard interaction recommendation so arrows move thumbnail selection by item or row and Enter or Space opens the selected image.
+
+## 2026-07-17T06:02:00-0400 — Preserve folder-list scroll position
+
+- Prompt summary: Apply the audit's scroll-preservation fix so full interface renders do not reset the folder list or thumbnail panel to the top while browsing.
+
+## 2026-07-17T05:56:00-0400 — Prevent intrinsic viewer-image clipping
+
+- Prompt summary: Apply the audit's grid and flex shrink constraints so large original images cannot retain intrinsic dimensions and be clipped by the viewer container.
+
+## 2026-07-17T05:51:00-0400 — Fit the complete image in the viewer
+
+- Prompt summary: Prevent the viewer from zooming and clipping a photo by constraining images to their intrinsic aspect ratio within the available overlay area.
+
+## 2026-07-17T05:49:00-0400 — Prepare the next prerelease version
+
+- Prompt summary: Move all work after the last committed alpha.3 release into the next prerelease version and synchronize version references and release notes.
+
+## 2026-07-17T05:42:00-0400 — Apply audited persistent-viewer repair
+
+- Prompt summary: Implement the audit's recommended fix for delayed thumbnail viewing by mounting the viewer outside the rebuilt application shell, supporting both double-click event paths, and closing the viewer during folder changes.
+
+## 2026-07-17T05:31:00-0400 — Open viewer from the second thumbnail click
+
+- Prompt summary: Repair the remaining thumbnail double-click failure by opening the viewer from the reliably delivered second click instead of relying on a separate double-click event.
+
+## 2026-07-17T05:29:00-0400 — Mount the viewer on thumbnail double-click
+
+- Prompt summary: Fix thumbnail double-click so it immediately opens the image viewer instead of waiting for an unrelated folder change to trigger a full render.
+
 ## 2026-07-16T15:25:00-0400 — Verify documentation consistency
 
 - Prompt summary: Recheck and reconcile the project documentation after the repaired viewer behavior appears to be working.
