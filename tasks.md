@@ -2,11 +2,12 @@
 
 ## Current Focus
 
-Phase 3 viewer and responsiveness repair — completed.
+Phase 6 interactive ratings and embedded EXIF/XMP metadata integration — completed.
 
 ## Next Tasks
 
-- [ ] Resolve the `clippy::type_complexity` warning in thumbnail generation so the strict Rust lint check passes.
+- [x] Resolve the `clippy::type_complexity` warning in thumbnail generation so the strict Rust lint check passes.
+- [x] Implement interactive star ratings embedded directly into original image metadata.
 - [ ] Confirm the final project license.
 - [x] Confirm the initial Tauri application structure.
 - [x] Define Phase 0 acceptance criteria.
@@ -27,7 +28,7 @@ Phase 3 viewer and responsiveness repair — completed.
   - **Remove from catalogue** leaves the original file on disk and excludes it from future scans.
   - **Delete from disk** deletes the original file, cached thumbnail, and catalogue entry.
   - Context menu, Delete, and Backspace open the same explicit choice; the confirmation cannot be skipped.
-- [ ] Define the first public test package.
+- [x] Define the first public test package (0.3.0-alpha.6 DMG generated).
 
 ## Open Questions
 

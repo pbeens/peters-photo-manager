@@ -143,6 +143,44 @@ fn open_folder_in_file_manager(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn show_item_in_file_manager(path: String) -> Result<(), String> {
+    let file_path = Path::new(&path);
+    if !file_path.exists() {
+        return Err(format!("{path} does not exist."));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-R")
+            .arg(file_path)
+            .spawn()
+            .map_err(|error| format!("Could not reveal the file in Finder: {error}"))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let win_path = file_path.to_string_lossy().replace("/", "\\");
+        Command::new("explorer")
+            .arg(format!("/select,\"{}\"", win_path))
+            .spawn()
+            .map_err(|error| format!("Could not reveal the file in Explorer: {error}"))?;
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        if let Some(parent) = file_path.parent() {
+            Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|error| format!("Could not open the parent folder: {error}"))?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Wipe the entire catalogue and re-register watched folders so a fresh
 /// rescan picks up everything from scratch.  Temporary dev helper.
 #[tauri::command]
@@ -276,6 +314,59 @@ fn delete_from_disk(db_state: tauri::State<'_, DbState>, path: String) -> Result
     db::delete_file_record(&conn, &path).map_err(|err| err.to_string())?;
     Ok(())
 }
+
+fn write_metadata_rating(photo_path: &Path, rating: Option<u16>) -> Result<(), String> {
+    let mut et = exiftool_rs::ExifTool::new();
+    let rating_val = rating.map(|r| r.to_string());
+    et.set_new_value("IFD0:Rating", rating_val.as_deref());
+    et.set_new_value("xmp:Rating", rating_val.as_deref());
+    et.set_new_value("Rating", rating_val.as_deref());
+
+    let parent = photo_path.parent().ok_or_else(|| "Invalid file path".to_string())?;
+    let file_name = photo_path.file_name().ok_or_else(|| "Invalid file name".to_string())?;
+    let temp_name = format!("{}.tmp", file_name.to_string_lossy());
+    let temp_path = parent.join(temp_name);
+
+    et.write_info(photo_path, &temp_path)
+        .map_err(|e| format!("Failed to write metadata: {:?}", e))?;
+
+    std::fs::rename(&temp_path, photo_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to overwrite original file: {}", e)
+    })?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn log_frontend_error(msg: String) {
+    eprintln!("FRONTEND ERROR: {}", msg);
+    let _ = std::fs::write("frontend_error.log", msg);
+}
+
+#[tauri::command]
+fn set_photo_rating(
+    db_state: tauri::State<'_, DbState>,
+    path: String,
+    rating: Option<u16>,
+) -> Result<(), String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+
+    let photo_path = Path::new(&path);
+    if !photo_path.exists() {
+        return Err("Photo file does not exist on disk".to_string());
+    }
+
+    write_metadata_rating(photo_path, rating)?;
+
+    db::update_file_rating(&conn, &path, rating).map_err(|err| err.to_string())?;
+
+    Ok(())
+}
+
 
 async fn perform_scan_and_sync(
     app: AppHandle,
@@ -687,6 +778,21 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
         }
     }
 
+    // Fallback: if rating is None, extract it using exiftool-rs
+    if rating.is_none() {
+        let et = exiftool_rs::ExifTool::new();
+        if let Ok(tags) = et.extract_info(file_path) {
+            for tag in &tags {
+                if tag.name == "Rating" {
+                    if let Ok(r) = tag.print_value.parse::<u16>() {
+                        rating = Some(r);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     Ok(ImageMetadata {
         file_size,
         dimensions: (width, height),
@@ -802,7 +908,10 @@ pub fn run() {
             copy_image_to_clipboard,
             get_catalogued_files,
             remove_from_catalogue,
-            delete_from_disk
+            delete_from_disk,
+            set_photo_rating,
+            log_frontend_error,
+            show_item_in_file_manager
         ])
         .run(tauri::generate_context!())
         .expect("error while running Peter's Photo Manager");

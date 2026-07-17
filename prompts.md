@@ -1,5 +1,45 @@
 # Prompt Log
 
+## 2026-07-17T12:05:00-0400 — Insert application screenshot in README.md
+
+- Prompt summary: Insert the application screenshot image tag `![Peter’s Photo Manager Screenshot](project-docs/screenshots/screenshot.png)` right below the main title in `README.md`.
+
+## 2026-07-17T12:00:00-0400 — Update README.md with prominent installer & issues links
+
+- Prompt summary: Add a prominent callout block at the top of `README.md` containing links to the `exports/` folder for built setup files and the project's GitHub Issues tracker.
+
+## 2026-07-17T11:46:00-0400 — Fix multiple binary build error and configure default-run
+
+- Prompt summary: Fix `cargo run` conflict by removing leftover temporary test binaries from the `src-tauri/src/bin/` folder and adding `default-run = "peters-photo-manager"` in the `Cargo.toml` manifest to ensure the dev command always launches the primary app binary.
+
+## 2026-07-17T11:44:00-0400 — Correct EXIF rating tag mapping to IFD0:Rating
+
+- Prompt summary: Fix standard EXIF tag writing by changing the tag name parameter from `"EXIF:Rating"` to `"IFD0:Rating"` in `write_metadata_rating`, successfully mapping the rating value to standard EXIF Microsoft Rating tag `0x4746` in JPEG images.
+
+## 2026-07-17T11:41:00-0400 — Implement "Reveal in Finder/Explorer" thumbnail context action
+
+- Prompt summary: Add a right-click thumbnail context menu action `"reveal-file"` ("Open in Finder" on macOS, "Open in Explorer" on Windows) that executes a new Tauri command `show_item_in_file_manager` to highlight the selected photo in the system's file manager.
+
+## 2026-07-17T11:36:00-0400 — Implement exiftool-rs rating reader fallback for scans
+
+- Prompt summary: Fix rating loss on folder reset/rescan for PNG and non-standard image formats by implementing an `exiftool-rs` fallback rating reader in `get_image_metadata_internal` that executes if `kamadak-exif` fails to find a rating.
+
+## 2026-07-17T11:34:00-0400 — Fix EXIF:Rating tag serialization persistence
+
+- Prompt summary: Fix rating loss after rescans by writing rating value to the `EXIF:Rating` (0x4746) tag using `exiftool-rs` in `write_metadata_rating` to match the tag read by `kamadak-exif` during background directory scanning.
+
+## 2026-07-17T11:28:00-0400 — Fix GPS null coordinate details panel crash
+
+- Prompt summary: Resolve JavaScript runtime exception `TypeError: null is not an object (evaluating 'metadata.latitude.toFixed')` in `renderDetailsContent` by replacing strict `!== undefined` inequality checks with loose `!= null` checks for `latitude`, `longitude`, `iso`, and `rating`; integrate window-level unhandled exception and promise rejection event loggers, writing errors to `frontend_error.log` for immediate debugging.
+
+## 2026-07-17T11:00:00-0400 — Implement interactive ratings and embedded EXIF/XMP metadata
+
+- Prompt summary: Implement star ratings embedded directly into original image files using the pure-Rust `exiftool-rs` crate with transaction-style safe updates; resolve the strict `clippy::type_complexity` warning on the parallel thumbnail generation loop; update `main.ts` details panel and keybindings to support star clicks and key shortcuts `0`-`5` for ratings; add third-party licensing attribution to `README.md`.
+
+## 2026-07-17T11:24:00-0400 — Begin alpha.6 development
+
+- Prompt summary: Advance the application and release documentation from version 0.3.0-alpha.5 to 0.3.0-alpha.6.
+
 ## 2026-07-17T11:16:00-0400 — Document and package alpha.5 release
 
 - Prompt summary: Update all project documentation for the completed alpha.5 behavior and package a release artifact.

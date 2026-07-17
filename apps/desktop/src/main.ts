@@ -204,7 +204,7 @@ function renderContextMenu(): void {
 
   const actions = contextMenu.kind === "folder"
     ? `<li><button data-context-action="open-folder" type="button">${folderOpenLabel()}</button></li><li><button data-context-action="copy-path" type="button">Copy folder path</button></li><li><button data-context-action="remove-folder" type="button">Remove folder</button></li>`
-    : `${!viewerSourcePath ? `<li><button data-context-action="open-preview" type="button">Open preview</button></li>` : ""}<li><button data-context-action="copy-name" type="button">Copy filename</button></li><li><button data-context-action="copy-path" type="button">Copy complete path</button></li><li><button data-context-action="copy-image" type="button">Copy image</button></li><li><button data-context-action="remove-or-delete" type="button">Remove or delete…</button></li>`;
+    : `${!viewerSourcePath ? `<li><button data-context-action="open-preview" type="button">Open preview</button></li>` : ""}<li><button data-context-action="reveal-file" type="button">${folderOpenLabel()}</button></li><li><button data-context-action="copy-name" type="button">Copy filename</button></li><li><button data-context-action="copy-path" type="button">Copy complete path</button></li><li><button data-context-action="copy-image" type="button">Copy image</button></li><li><button data-context-action="remove-or-delete" type="button">Remove or delete…</button></li>`;
   contextMenuHost.innerHTML = `<menu class="image-context-menu" style="left:${contextMenu.x}px;top:${contextMenu.y}px">${actions}</menu>`;
 }
 
@@ -335,14 +335,14 @@ function hasEmbeddedMetadata(metadata: ImageMetadata): boolean {
   return Boolean(
     metadata.camera
       || metadata.lens
-      || metadata.latitude !== undefined
-      || metadata.longitude !== undefined
+      || metadata.latitude != null
+      || metadata.longitude != null
       || metadata.dateTaken
       || metadata.aperture
       || metadata.shutterSpeed
-      || metadata.iso !== undefined
+      || metadata.iso != null
       || metadata.focalLength
-      || metadata.rating !== undefined
+      || metadata.rating != null
       || metadata.keywords?.length,
   );
 }
@@ -356,17 +356,98 @@ function renderDetailsContent(): string {
   }
 
   const metadata = selectedMetadata;
+  const selectedHasEmbeddedMetadata = metadata ? hasEmbeddedMetadata(metadata) : false;
+
   return `<div class="details-content">
-    <div class="details-group"><label>Filename</label><p>${escapeHtml(selectedThumbnail.name)}</p></div>
-    <div class="details-group"><label>Path</label><p class="details-path" title="${escapeHtml(selectedThumbnail.sourcePath)}">${escapeHtml(selectedThumbnail.sourcePath)}</p></div>
-    ${metadata ? `<div class="details-group"><label>Format</label><p>${escapeHtml(metadata.format)}</p></div>
-      <div class="details-group"><label>File Size</label><p>${formatBytes(metadata.fileSize)}</p></div>
-      <div class="details-group"><label>Dimensions</label><p>${metadata.dimensions[0]} × ${metadata.dimensions[1]} px</p></div>
-      ${!hasEmbeddedMetadata(metadata) ? `<div class="details-loading">No embedded photo metadata is available.</div>` : ""}
-      ${metadata.camera ? `<div class="details-group"><label>Camera</label><p>${escapeHtml(metadata.camera)}</p></div>` : ""}
-      ${metadata.lens ? `<div class="details-group"><label>Lens</label><p>${escapeHtml(metadata.lens)}</p></div>` : ""}
-      ${metadata.dateTaken ? `<div class="details-group"><label>Date Taken</label><p>${escapeHtml(metadata.dateTaken)}</p></div>` : ""}`
-      : `<div class="details-loading">${escapeHtml(metadataError ?? "Loading photo details…")}</div>`}
+    <div class="details-group">
+      <label>Filename</label>
+      <p>${escapeHtml(selectedThumbnail.name)}</p>
+    </div>
+    <div class="details-group">
+      <label>Path</label>
+      <p class="details-path" title="${escapeHtml(selectedThumbnail.sourcePath)}">${escapeHtml(selectedThumbnail.sourcePath)}</p>
+    </div>
+    ${metadata ? `
+      <div class="details-group">
+        <label>Format</label>
+        <p>${escapeHtml(metadata.format)}</p>
+      </div>
+      <div class="details-group">
+        <label>File Size</label>
+        <p>${formatBytes(metadata.fileSize)}</p>
+      </div>
+      <div class="details-group">
+        <label>Dimensions</label>
+        <p>${metadata.dimensions[0]} × ${metadata.dimensions[1]} px</p>
+      </div>
+
+      <div class="details-group">
+        <label>Rating</label>
+        <div class="details-rating-interactive" data-rating-container>
+          ${[1, 2, 3, 4, 5].map(val => `
+            <button class="star-button ${(metadata.rating && metadata.rating >= val) ? "is-active" : ""}" data-rate-value="${val}" type="button" title="Rate ${val} star${val === 1 ? '' : 's'}">★</button>
+          `).join("")}
+          ${metadata.rating ? `
+            <button class="clear-rating-button" id="clear-rating" type="button" title="Clear rating">×</button>
+          ` : ""}
+        </div>
+      </div>
+
+      ${!selectedHasEmbeddedMetadata ? `<div class="details-loading">No embedded photo metadata is available.</div>` : ""}
+
+      ${metadata.camera ? `
+        <div class="details-group">
+          <label>Camera</label>
+          <p>${escapeHtml(metadata.camera)}</p>
+        </div>
+      ` : ""}
+      ${metadata.lens ? `
+        <div class="details-group">
+          <label>Lens</label>
+          <p>${escapeHtml(metadata.lens)}</p>
+        </div>
+      ` : ""}
+      ${(metadata.locationCountry || metadata.locationState || metadata.locationCity || metadata.latitude != null) ? `
+        <div class="details-group">
+          <label>Location</label>
+          <p>${[
+            [
+              metadata.locationCity,
+              metadata.locationState,
+              metadata.locationCountry
+            ].filter(Boolean).join(", "),
+            metadata.latitude != null && metadata.longitude != null
+              ? `${metadata.latitude.toFixed(4)}, ${metadata.longitude.toFixed(4)}`
+              : ""
+          ].filter(Boolean).join(" · ")}</p>
+        </div>
+      ` : ""}
+      ${metadata.dateTaken ? `
+        <div class="details-group">
+          <label>Date Taken</label>
+          <p>${escapeHtml(metadata.dateTaken)}</p>
+        </div>
+      ` : ""}
+      ${(metadata.aperture || metadata.shutterSpeed || metadata.iso || metadata.focalLength) ? `
+        <div class="details-group">
+          <label>Exposure</label>
+          <p>${[
+            metadata.focalLength,
+            metadata.aperture,
+            metadata.shutterSpeed,
+            metadata.iso ? `ISO ${metadata.iso}` : ""
+          ].filter(Boolean).join(" · ")}</p>
+        </div>
+      ` : ""}
+      ${metadata.keywords ? `
+        <div class="details-group">
+          <label>Keywords</label>
+          <div class="details-keywords">
+            ${metadata.keywords.map(kw => `<span class="keyword-tag">${escapeHtml(kw)}</span>`).join("")}
+          </div>
+        </div>
+      ` : ""}
+    ` : `<div class="details-loading">${escapeHtml(metadataError ?? "Loading photo details…")}</div>`}
   </div>`;
 }
 
@@ -422,6 +503,31 @@ async function selectAndLoadMetadata(path: string | null): Promise<void> {
   }
   if (selectedThumbnailPath === path) {
     updateSelectionUI();
+  }
+}
+
+async function setPhotoRating(path: string, rating: number | null): Promise<void> {
+  try {
+    // 1. Invoke the Rust command
+    await invoke<void>("set_photo_rating", { path, rating: rating !== null ? rating : undefined });
+
+    // 2. Update local catalog metadata state
+    const metadata = catalogMetadata.get(path);
+    if (metadata) {
+      metadata.rating = rating !== null ? rating : undefined;
+    }
+
+    if (selectedThumbnailPath === path && selectedMetadata) {
+      selectedMetadata.rating = rating !== null ? rating : undefined;
+    }
+
+    // 3. Update the UI in place
+    updateSelectionUI();
+    errorMessage = "";
+  } catch (error) {
+    console.error("Failed to set photo rating:", error);
+    errorMessage = String(error);
+    render();
   }
 }
 
@@ -597,8 +703,6 @@ function render(): void {
 
   const selectedFolder = activeFolder;
   const isAllFolders = selectedFolder === ALL_FOLDERS;
-  const selectedThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
-  const selectedHasEmbeddedMetadata = selectedMetadata ? hasEmbeddedMetadata(selectedMetadata) : false;
   const files = scanResult?.files ?? [];
   const topLevelFoldersExpanded = settings.watchedFolders.some((folder) => expandedFolders.has(folder));
 
@@ -656,97 +760,7 @@ function render(): void {
       <aside class="details-panel" id="details-panel" aria-label="Photo details">
         <div class="sidebar-heading panel-header"><p class="eyebrow">Details</p></div>
         <div class="details-body panel-body" id="details-body">
-        ${selectedThumbnail
-            ? `<div class="details-content">
-                <div class="details-group">
-                  <label>Filename</label>
-                  <p>${escapeHtml(selectedThumbnail.name)}</p>
-                </div>
-                <div class="details-group">
-                  <label>Path</label>
-                  <p class="details-path" title="${escapeHtml(selectedThumbnail.sourcePath)}">${escapeHtml(selectedThumbnail.sourcePath)}</p>
-                </div>
-                ${
-                  selectedMetadata
-                    ? `<div class="details-group">
-                        <label>Format</label>
-                        <p>${escapeHtml(selectedMetadata.format)}</p>
-                      </div>
-                      <div class="details-group">
-                        <label>File Size</label>
-                        <p>${formatBytes(selectedMetadata.fileSize)}</p>
-                      </div>
-                      <div class="details-group">
-                        <label>Dimensions</label>
-                        <p>${selectedMetadata.dimensions[0]} × ${selectedMetadata.dimensions[1]} px</p>
-                      </div>
-                      ${!selectedHasEmbeddedMetadata ? `<div class="details-loading">No embedded photo metadata is available.</div>` : ""}
-                      ${selectedMetadata.camera ? `
-                        <div class="details-group">
-                          <label>Camera</label>
-                          <p>${escapeHtml(selectedMetadata.camera)}</p>
-                        </div>
-                      ` : ""}
-                      ${selectedMetadata.lens ? `
-                        <div class="details-group">
-                          <label>Lens</label>
-                          <p>${escapeHtml(selectedMetadata.lens)}</p>
-                        </div>
-                      ` : ""}
-                      ${(selectedMetadata.locationCountry || selectedMetadata.locationState || selectedMetadata.locationCity || selectedMetadata.latitude !== undefined) ? `
-                        <div class="details-group">
-                          <label>Location</label>
-                          <p>${[
-                            [
-                              selectedMetadata.locationCity,
-                              selectedMetadata.locationState,
-                              selectedMetadata.locationCountry
-                            ].filter(Boolean).join(", "),
-                            selectedMetadata.latitude !== undefined && selectedMetadata.longitude !== undefined
-                              ? `${selectedMetadata.latitude.toFixed(4)}, ${selectedMetadata.longitude.toFixed(4)}`
-                              : ""
-                          ].filter(Boolean).join(" · ")}</p>
-                        </div>
-                      ` : ""}
-                      ${selectedMetadata.dateTaken ? `
-                        <div class="details-group">
-                          <label>Date Taken</label>
-                          <p>${escapeHtml(selectedMetadata.dateTaken)}</p>
-                        </div>
-                      ` : ""}
-                      ${(selectedMetadata.aperture || selectedMetadata.shutterSpeed || selectedMetadata.iso || selectedMetadata.focalLength) ? `
-                        <div class="details-group">
-                          <label>Exposure</label>
-                          <p>${[
-                            selectedMetadata.focalLength,
-                            selectedMetadata.aperture,
-                            selectedMetadata.shutterSpeed,
-                            selectedMetadata.iso ? `ISO ${selectedMetadata.iso}` : ""
-                          ].filter(Boolean).join(" · ")}</p>
-                        </div>
-                      ` : ""}
-                      ${selectedMetadata.rating ? `
-                        <div class="details-group">
-                          <label>Rating</label>
-                          <p class="details-rating">${"★".repeat(selectedMetadata.rating)}${"☆".repeat(5 - selectedMetadata.rating)}</p>
-                        </div>
-                      ` : ""}
-                      ${selectedMetadata.keywords ? `
-                        <div class="details-group">
-                          <label>Keywords</label>
-                          <div class="details-keywords">
-                            ${selectedMetadata.keywords.map(kw => `<span class="keyword-tag">${escapeHtml(kw)}</span>`).join("")}
-                          </div>
-                        </div>
-                      ` : ""}
-                      `
-                    : `<div class="details-loading">${escapeHtml(metadataError ?? "Loading photo details…")}</div>`
-                }
-              </div>`
-            : `<div class="details-empty">
-                <p>Select a photograph to view details.</p>
-              </div>`
-        }
+        ${renderDetailsContent()}
         </div>
         ${renderDetailsSupportFooter()}
       </aside>
@@ -982,6 +996,22 @@ async function refreshCacheSize(): Promise<void> {
   }
 }
 
+window.addEventListener("error", (event) => {
+  const err = event.error;
+  const msg = err 
+    ? `${err.message || String(err)}\nStack:\n${err.stack || ""}`
+    : event.message;
+  void invoke("log_frontend_error", { msg: `Unhandled Window Error: ${msg}` });
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  const msg = reason 
+    ? `${reason.message || String(reason)}\nStack:\n${reason.stack || ""}`
+    : "Promise rejection";
+  void invoke("log_frontend_error", { msg: `Unhandled Promise Rejection: ${msg}` });
+});
+
 async function initialize(): Promise<void> {
   try {
     document.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -999,6 +1029,13 @@ async function initialize(): Promise<void> {
       dismissContextMenu();
       if (action === "open-preview" && menu.kind === "image") {
         openViewer(menu.path);
+      } else if (action === "reveal-file" && menu.kind === "image") {
+        try {
+          await invoke<void>("show_item_in_file_manager", { path: menu.path });
+        } catch (error) {
+          errorMessage = String(error);
+          render();
+        }
       } else if (action === "remove-or-delete" && menu.kind === "image") {
         showRemovalDialog(menu.path);
       } else if (action === "open-folder" && menu.kind === "folder") {
@@ -1082,31 +1119,50 @@ async function initialize(): Promise<void> {
       if (contextMenu) dismissContextMenu();
     });
     app?.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
-        return;
-      }
-      if (target.closest("#folder-options-button")) {
-        sidebarMenuOpen = !sidebarMenuOpen;
-        render();
-        return;
-      }
-      if (contextMenu && !target.closest("#context-menu-host")) {
-        dismissContextMenu();
-      }
-      const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
-      const index = Number(card?.dataset.thumbnailIndex);
-      const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
-      if (thumbnail) {
-        // Tauri's WebView reliably delivers the second click even when its
-        // synthesized dblclick event is delayed or lost during a DOM update.
-        if (event.detail >= 2) {
-          event.preventDefault();
-          event.stopPropagation();
-          openViewer(thumbnail.sourcePath);
+      try {
+        const target = event.target;
+        if (!(target instanceof Element)) {
           return;
         }
-        void selectAndLoadMetadata(thumbnail.sourcePath);
+        
+        const rateButton = target.closest<HTMLButtonElement>("[data-rate-value]");
+        if (rateButton && selectedThumbnailPath) {
+          const rating = Number(rateButton.dataset.rateValue);
+          void setPhotoRating(selectedThumbnailPath, rating);
+          return;
+        }
+
+        const clearRatingButton = target.closest<HTMLButtonElement>("#clear-rating");
+        if (clearRatingButton && selectedThumbnailPath) {
+          void setPhotoRating(selectedThumbnailPath, null);
+          return;
+        }
+
+        if (target.closest("#folder-options-button")) {
+          sidebarMenuOpen = !sidebarMenuOpen;
+          render();
+          return;
+        }
+        if (contextMenu && !target.closest("#context-menu-host")) {
+          dismissContextMenu();
+        }
+        const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
+        const index = Number(card?.dataset.thumbnailIndex);
+        const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
+        if (thumbnail) {
+          // Tauri's WebView reliably delivers the second click even when its
+          // synthesized dblclick event is delayed or lost during a DOM update.
+          if (event.detail >= 2) {
+            event.preventDefault();
+            event.stopPropagation();
+            openViewer(thumbnail.sourcePath);
+            return;
+          }
+          void selectAndLoadMetadata(thumbnail.sourcePath);
+        }
+      } catch (error: any) {
+        const msg = error ? (error.stack || error.message || String(error)) : "Unknown click error";
+        void invoke("log_frontend_error", { msg: `Error in click listener: ${msg}` });
       }
     });
     app?.addEventListener("dblclick", (event) => {
@@ -1175,6 +1231,12 @@ async function initialize(): Promise<void> {
       if (!isFormControl(event.target) && selectedThumbnailPath && (event.key === "Delete" || event.key === "Backspace")) {
         event.preventDefault();
         showRemovalDialog(selectedThumbnailPath);
+        return;
+      }
+      if (!isFormControl(event.target) && selectedThumbnailPath && ["0", "1", "2", "3", "4", "5"].includes(event.key)) {
+        event.preventDefault();
+        const rating = event.key === "0" ? null : Number(event.key);
+        void setPhotoRating(selectedThumbnailPath, rating);
         return;
       }
       if (viewerSourcePath) {

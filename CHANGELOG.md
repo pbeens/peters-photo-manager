@@ -4,6 +4,20 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.6 — 2026-07-17
+
+### Added
+
+- **Embedded star ratings**: Clicking stars in the details pane writes EXIF/XMP Rating tag metadata directly to the image file atomically, synchronizing ratings across machines.
+- **Keyboard rating shortcuts**: Press keys `0` through `5` when viewing or highlighting a photo to set or clear (`0`) its rating.
+- **System file reveal**: Right-click a thumbnail to reveal/show the file in Finder (macOS) or Explorer (Windows) with standard highlighting support.
+- **Frontend error reporting**: Added window-level unhandled exception loggers writing to `frontend_error.log` for real-time frontend diagnostic support.
+
+### Fixed
+
+- **GPS coordinates formatting crash**: Resolved details panel rendering errors by replacing strict inequality checks with robust loose inequality checks for optional SQLite null columns.
+- **Fallback metadata scanner**: Implemented a fallback rating reader using `exiftool-rs` to ensure ratings are read back correctly from formats (like PNG text metadata chunks) during scans and database resets.
+
 ## 0.3.0-alpha.5 — 2026-07-17
 
 ### Added

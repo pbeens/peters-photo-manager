@@ -64,7 +64,8 @@ where
     let progress = std::sync::Arc::new(std::sync::Mutex::new(report));
 
     // Parallel processing: collect all results first, then split successes from errors
-    let results: Vec<(usize, Result<(ImageFile, PathBuf), String>)> = files
+    type TaskResult = Result<(ImageFile, PathBuf), String>;
+    let results: Vec<(usize, TaskResult)> = files
         .into_par_iter()
         .enumerate()
         .map(|(index, file)| {

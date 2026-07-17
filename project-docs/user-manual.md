@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.5` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts and available EXIF information.
+`0.3.0-alpha.6` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts and available EXIF information.
 
 ## Start the Application
 
@@ -37,7 +37,9 @@ The grid supports JPEG, PNG, and WebP files.
 
 - Drag the **Thumbnail size** slider to resize the grid; your setting is restored the next time the app opens.
 - Use the **Sorted by** control beneath the thumbnail grid to sort by file name, date taken, date modified, or file size. Its adjacent toggle switches between ascending and descending order. Both sort choices are restored the next time the app opens.
-- Click a thumbnail to select it and immediately show its filename, path, format, size, and dimensions in the Details panel.
+- Click a thumbnail to select it and immediately show its properties and rating in the Details panel.
+- **Star Ratings**: Click any of the 5 stars in the Details panel to assign a star rating to the photo. Click the `×` button beside the stars to clear the rating (make it unrated). Ratings are written directly to the image file's metadata (`IFD0:Rating` / `XMP:Rating`), making them fully persistent and synchronized across devices.
+- **Keyboard Rating Shortcuts**: Press keys `0` through `5` on your keyboard when highlighting or viewing a photo to immediately set its rating (pressing `0` clears it).
 - Double-click a thumbnail to open it. A large cached preview appears first; the original file replaces it when ready. The viewer fits the complete image within the available window. The caption reports if the original could not be loaded.
 - With the viewer closed, use the **Arrow keys** to move the grid selection and **Enter** or **Space** to open the selected image. Up and Down move by a full grid row.
 - Press **Escape** or select **×** to close the viewer.
@@ -50,6 +52,7 @@ The bottom panel shows the image total, current thumbnail-cache size, saved sort
 Right-click a thumbnail for application-controlled options:
 
 - **Open preview** (thumbnails only)
+- **Open in Finder** (macOS) or **Open in Explorer** (Windows) opens the photo's containing folder and highlights/selects the file in the file manager.
 - **Copy filename**
 - **Copy complete path**
 - **Copy image** (copies actual image data to system clipboard)
@@ -64,8 +67,9 @@ The browser-style context menu is intentionally disabled.
 Select a photograph in the grid to display its properties in the right-side Details panel:
 
 - Filename, path, format, file size, and image dimensions are displayed from the local catalogue immediately.
+- Star Rating and location coordinates (latitude/longitude) are also displayed and editable.
 - When embedded EXIF is available, camera model/make, lens model, and capture date are also shown.
-- Photos without embedded EXIF explicitly state that no embedded photo metadata is available.
+- Photos without embedded EXIF or star ratings explicitly state that no embedded photo metadata is available.
 
 ## Cache and Privacy
 
@@ -85,6 +89,6 @@ If you find bugs or have feature requests, please submit them on the [GitHub Iss
 
 ## Current Limitations
 
-- The application has no rating/keyword editing, albums, file moving, export, or AI features yet.
+- The application has no keyword editing, albums, file moving, export, or AI features yet.
 - Large folders may take time to scan and thumbnail on their first run; the grid, Details panel, and viewer remain available while this work runs.
 - The application has been manually tested on macOS; Windows testing is still required.

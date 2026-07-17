@@ -2,11 +2,11 @@
 
 ## Phase
 
-Phase 3: Basic image viewer and responsiveness repair — completed.
+Phase 6: Star Ratings & Embedded Metadata Integration — completed.
 
 ## Objective
 
-Provide a responsive thumbnail browser with immediate basic details, a cached-first image viewer, and sequential navigation while scanning and metadata work continue in the background.
+Provide interactive star ratings embedded directly into image files atomically (persisted to EXIF/XMP tags), add keyboard shortcuts for ratings, implement right-click Finder/Explorer file reveal actions, and integrate frontend runtime error loggers.
 
 ## Included Features
 
@@ -25,28 +25,28 @@ Provide a responsive thumbnail browser with immediate basic details, a cached-fi
 
 ## Excluded
 
-Filesystem monitoring, editing, albums, exporting, AI, RAW support, video, plugins, and synchronization.
+Filesystem monitoring, metadata editing (except star ratings), albums, exporting, AI, RAW support, video, plugins, and synchronization.
 
 ## Acceptance Criteria
 
-- A selected image immediately displays basic Details without waiting for EXIF extraction.
-- The viewer opens with a cached preview and displays the full-resolution original when ready.
-- Escape and the close control dismiss the viewer.
-- The grid remains available after closing the viewer.
-- Selecting a thumbnail displays its file details in the Details panel without rebuilding the grid.
-- Left and right navigation works via keys and screen overlays, updating the viewer, grid highlight, and Details state in place.
+- Clicking stars in the details panel immediately writes standard EXIF (`IFD0:Rating`) and XMP (`xmp:Rating`) rating tags directly to the file on disk.
+- File writes are transaction-style atomic renames to prevent any corruption.
+- Star ratings can be set or cleared using keyboard hotkeys `0` through `5`.
+- Right-clicking thumbnails shows OS-specific "Open in Finder" or "Open in Explorer" context options, opening and highlighting the file in the file manager.
+- Frontend runtime errors are captured and forwarded to the backend console and `frontend_error.log`.
+- Ratings are successfully parsed and preserved during background directory rescans and database resets via a metadata reader fallback using `exiftool-rs`.
 
 ## Verification Results
 
-- Frontend production build (tsc && vite build): passed.
-- Rust unit tests for recursive discovery and thumbnail-cache reuse: passed.
-- Rust formatting check (cargo fmt): passed.
-- Rust Clippy check (`cargo clippy --all-targets --all-features -- -D warnings`): currently fails on `clippy::type_complexity` in `src/thumbnails.rs`; tracked as follow-up work.
+- Frontend production build (`tsc && vite build`): passed.
+- Rust unit tests (`cargo test`): passed.
+- Rust formatting check (`cargo fmt`): passed.
+- Rust Clippy check (`cargo clippy --all-targets --all-features -- -D warnings`): passed cleanly with no warnings or errors.
 
 ## Manual Test Needed
 
-- Responsive selection, viewer opening, navigation, and alpha.5 folder/thumbnail controls have been manually accepted on macOS.
+- Star rating updates, keybindings, OS file manager revealing, and fallback rescan persistence have been manually verified and accepted on macOS.
 
 ## Next Phase
 
-Future work will focus on filesystem monitoring, richer metadata and search, and safe file operations.
+Future work will focus on file search, keyword metadata editing, albums, and filesystem monitoring.
