@@ -1,5 +1,13 @@
 # Prompt Log
 
+## 2026-07-17T14:54:45-0400 — Explain remaining uncommitted alpha.7 files
+
+- Prompt summary: Explain why the main branch shows only the prompt log and an unknown JPEG original as pending upload files after the alpha.7 release merge.
+
+## 2026-07-17T14:54:03-0400 — Confirm alpha.7 merge and upload availability
+
+- Prompt summary: Verify whether the alpha.7 branch was merged into `main` and explain why release files are not visible for upload.
+
 ## 2026-07-17T14:47:18-0400 — Finalize alpha.7 release
 
 - Prompt summary: Verify release documentation, merge the completed photo-tagging work into `main`, package the application, and prepare version `0.3.0-alpha.7` for release.
