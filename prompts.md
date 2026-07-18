@@ -1,5 +1,9 @@
 # Prompt Log
 
+## 2026-07-18T17:51:32-0400 — Commit and merge v0.3.0-alpha.8 changes into main
+
+- Prompt summary: Commit all local changes on the RAW support feature branch, check out main, merge the feature branch, and push main to remote.
+
 ## 2026-07-18T17:46:49-0400 — Package v0.3.0-alpha.8 and bump version to v0.3.0-alpha.9
 
 - Prompt summary: Run the full release manager skill, compiling the production build, copying the DMG installer to the exports directory, and bumping the active configuration files to v0.3.0-alpha.9.
