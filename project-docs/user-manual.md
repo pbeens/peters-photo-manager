@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.7` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
+`0.3.0-alpha.8` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-resolution preview caching, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
 
 ## Start the Application
 

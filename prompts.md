@@ -1,5 +1,9 @@
 # Prompt Log
 
+## 2026-07-18T17:53:37-0400 — Update user manual and release-manager skill definition
+
+- Prompt summary: Update project-docs/user-manual.md version and details for RAW files, and edit the release-manager skill instruction at ~/.agents/skills/release-manager/SKILL.md to explicitly include the user manual.
+
 ## 2026-07-18T17:51:32-0400 — Commit and merge v0.3.0-alpha.8 changes into main
 
 - Prompt summary: Commit all local changes on the RAW support feature branch, check out main, merge the feature branch, and push main to remote.
