@@ -10,6 +10,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use thumbnails::{ThumbnailProgress, ThumbnailResult};
+use image::ImageDecoder;
 
 pub struct DbState(pub Mutex<rusqlite::Connection>);
 
@@ -181,8 +182,8 @@ fn show_item_in_file_manager(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Wipe the entire catalogue and re-register watched folders so a fresh
-/// rescan picks up everything from scratch.  Temporary dev helper.
+/// Wipe the entire catalogue, clear cached thumbnail files, and re-register
+/// watched folders so a fresh rescan picks up everything from scratch.
 #[tauri::command]
 fn reset_catalogue(app: AppHandle, db_state: tauri::State<'_, DbState>) -> Result<(), String> {
     let conn = db_state
@@ -190,6 +191,13 @@ fn reset_catalogue(app: AppHandle, db_state: tauri::State<'_, DbState>) -> Resul
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?;
     db::reset_catalogue(&conn).map_err(|err| err.to_string())?;
+
+    // Wipe cached thumbnail files as well so orientation fixes can refresh
+    if let Ok(cache_dir) = app.path().app_cache_dir() {
+        let thumbnails_dir = cache_dir.join("thumbnails");
+        let _ = std::fs::remove_dir_all(&thumbnails_dir);
+    }
+
     // Re-register all watched folders so subsequent scans can find them
     if let Ok(settings) = settings::load(&app) {
         for folder in &settings.watched_folders {
@@ -542,7 +550,6 @@ async fn perform_scan_and_sync(
         std::fs::create_dir_all(&cache_directory)
             .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
 
-        let mut indexed_files = Vec::new();
 
         for (index, disk_file) in files_to_process.into_iter().enumerate() {
             let file_path_str = disk_file.path.clone();
@@ -568,13 +575,14 @@ async fn perform_scan_and_sync(
             // Extract image dimensions and EXIF on a blocking worker so the
             // async command runtime stays available for UI requests.
             let metadata_path = disk_file.path.clone();
+            let app_handle_for_meta = app.clone();
             let metadata = tauri::async_runtime::spawn_blocking(move || {
-                get_image_metadata_internal(&metadata_path).ok()
+                get_image_metadata_internal(Some(&app_handle_for_meta), &metadata_path).ok()
             })
             .await
             .map_err(|err| format!("Image metadata worker failed: {err}"))?;
 
-            indexed_files.push(db::IndexedFile {
+            let file_record = db::IndexedFile {
                 path: disk_file.path.clone(),
                 name: disk_file.name.clone(),
                 file_size: disk_file.file_size,
@@ -604,7 +612,19 @@ async fn perform_scan_and_sync(
                 thumbnail_path,
                 last_modified: disk_file.last_modified,
                 status: "active".to_string(),
-            });
+            };
+
+            // Save immediately to DB
+            {
+                let mut conn = conn_mutex
+                    .lock()
+                    .map_err(|_| "Failed to lock database".to_string())?;
+                db::save_files_batch(&mut conn, &[file_record], folder_id)
+                    .map_err(|err| err.to_string())?;
+            }
+
+            // Notify the frontend that new catalogue entries are available
+            let _ = app_clone.emit("catalogue-updated", ());
 
             emit_thumbnail_progress(
                 &app_clone,
@@ -614,13 +634,6 @@ async fn perform_scan_and_sync(
                 },
             );
         }
-
-        // Save batch to DB
-        let mut conn = conn_mutex
-            .lock()
-            .map_err(|_| "Failed to lock database".to_string())?;
-        db::save_files_batch(&mut conn, &indexed_files, folder_id)
-            .map_err(|err| err.to_string())?;
     }
 
     // 4. Return all active files in DB for this folder as ScanResult
@@ -673,10 +686,92 @@ pub struct ImageMetadata {
 }
 
 #[tauri::command]
-async fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
-    tauri::async_runtime::spawn_blocking(move || get_image_metadata_internal(&path))
+async fn get_image_metadata(app: AppHandle, path: String) -> Result<ImageMetadata, String> {
+    tauri::async_runtime::spawn_blocking(move || get_image_metadata_internal(Some(&app), &path))
         .await
         .map_err(|error| format!("Photo metadata lookup could not finish: {error}"))?
+}
+
+fn round_mm_in_string(s: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_digit() {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
+            }
+            let num_str: String = chars[start..i].iter().collect();
+            
+            let mut space_count = 0;
+            while i + space_count < chars.len() && chars[i + space_count] == ' ' {
+                space_count += 1;
+            }
+            
+            if i + space_count + 1 < chars.len() 
+               && chars[i + space_count] == 'm' 
+               && chars[i + space_count + 1] == 'm' 
+            {
+                if let Ok(val) = num_str.parse::<f64>() {
+                    result.push_str(&format!("{}", val.round() as u32));
+                } else {
+                    result.push_str(&num_str);
+                }
+                i += space_count + 2;
+                result.push_str(" mm");
+            } else {
+                result.push_str(&num_str);
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+    result
+}
+
+fn clean_lens_model(s: &str) -> String {
+    let rounded = round_mm_in_string(s);
+    let chars: Vec<char> = rounded.chars().collect();
+    let mut result = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let is_f_aperture = if i < chars.len() && (chars[i] == 'f' || chars[i] == 'F') {
+            let mut offset = 1;
+            if i + 1 < chars.len() && chars[i + 1] == '/' {
+                offset = 2;
+            }
+            if i + offset < chars.len() && chars[i + offset].is_ascii_digit() {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if is_f_aperture {
+            if chars[i + 1] == '/' {
+                i += 2;
+            } else {
+                i += 1;
+            }
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+    result.trim()
+        .replace("  ", " ")
+        .trim_end_matches(' ')
+        .trim_end_matches('-')
+        .trim_end_matches('•')
+        .trim()
+        .to_string()
 }
 
 fn parse_gps_coordinate(field: &exif::Field) -> Option<f64> {
@@ -691,14 +786,31 @@ fn parse_gps_coordinate(field: &exif::Field) -> Option<f64> {
     None
 }
 
-fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
+fn read_oriented_dimensions(path: &Path) -> Option<(u32, u32)> {
+    if let Ok(reader) = image::ImageReader::open(path) {
+        if let Ok(mut decoder) = reader.into_decoder() {
+            let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+            let (mut w, mut h) = decoder.dimensions();
+            if matches!(
+                orientation,
+                image::metadata::Orientation::Rotate90
+                    | image::metadata::Orientation::Rotate270
+                    | image::metadata::Orientation::Rotate90FlipH
+                    | image::metadata::Orientation::Rotate270FlipH
+            ) {
+                std::mem::swap(&mut w, &mut h);
+            }
+            return Some((w, h));
+        }
+    }
+    None
+}
+
+fn get_image_metadata_internal(app: Option<&AppHandle>, path: &str) -> Result<ImageMetadata, String> {
     let file_path = Path::new(path);
     let metadata = std::fs::metadata(file_path)
         .map_err(|err| format!("Could not read file metadata: {err}"))?;
     let file_size = metadata.len();
-
-    let (width, height) = image::image_dimensions(file_path)
-        .map_err(|err| format!("Could not read image dimensions: {err}"))?;
 
     let format = file_path
         .extension()
@@ -706,6 +818,8 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
         .unwrap_or("unknown")
         .to_uppercase();
 
+    let mut width = 0;
+    let mut height = 0;
     let mut camera = None;
     let mut lens = None;
     let mut latitude = None;
@@ -722,10 +836,67 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
     let mut rating = None;
     let mut keywords = None;
 
+    let is_raw = thumbnails::is_raw_file(file_path);
+
     if let Ok(file) = std::fs::File::open(file_path) {
         let mut bufreader = std::io::BufReader::new(&file);
         let exifreader = exif::Reader::new();
         if let Ok(exif) = exifreader.read_from_container(&mut bufreader) {
+            // Read width/height from EXIF
+            let mut exif_width = None;
+            let mut exif_height = None;
+
+            if let Some(field) = exif.get_field(exif::Tag::PixelXDimension, exif::In::PRIMARY) {
+                if let exif::Value::Long(ref values) = field.value {
+                    exif_width = values.first().copied();
+                } else if let exif::Value::Short(ref values) = field.value {
+                    exif_width = values.first().map(|&v| v as u32);
+                }
+            }
+            if let Some(field) = exif.get_field(exif::Tag::PixelYDimension, exif::In::PRIMARY) {
+                if let exif::Value::Long(ref values) = field.value {
+                    exif_height = values.first().copied();
+                } else if let exif::Value::Short(ref values) = field.value {
+                    exif_height = values.first().map(|&v| v as u32);
+                }
+            }
+
+            if exif_width.is_none() || exif_height.is_none() {
+                if let Some(field) = exif.get_field(exif::Tag::ImageWidth, exif::In::PRIMARY) {
+                    if let exif::Value::Long(ref values) = field.value {
+                        exif_width = values.first().copied();
+                    } else if let exif::Value::Short(ref values) = field.value {
+                        exif_width = values.first().map(|&v| v as u32);
+                    }
+                }
+                if let Some(field) = exif.get_field(exif::Tag::ImageLength, exif::In::PRIMARY) {
+                    if let exif::Value::Long(ref values) = field.value {
+                        exif_height = values.first().copied();
+                    } else if let exif::Value::Short(ref values) = field.value {
+                        exif_height = values.first().map(|&v| v as u32);
+                    }
+                }
+            }
+
+            let mut orientation_val = 1_u32;
+            if let Some(field) = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+                if let exif::Value::Short(ref values) = field.value {
+                    if let Some(&val) = values.first() {
+                        orientation_val = val as u32;
+                    }
+                }
+            }
+
+            if let (Some(mut w), Some(mut h)) = (exif_width, exif_height) {
+                if w >= 500 && h >= 500 {
+                    if matches!(orientation_val, 5 | 6 | 7 | 8) {
+                        std::mem::swap(&mut w, &mut h);
+                    }
+                    width = w;
+                    height = h;
+                }
+            }
+
             let make = exif
                 .get_field(exif::Tag::Make, exif::In::PRIMARY)
                 .map(|f| f.display_value().to_string());
@@ -749,13 +920,12 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
 
             // Parse Lens Model
             if let Some(field) = exif.get_field(exif::Tag::LensModel, exif::In::PRIMARY) {
-                lens = Some(
-                    field
-                        .display_value()
-                        .to_string()
-                        .trim_matches('"')
-                        .to_string(),
-                );
+                let lens_raw = field
+                    .display_value()
+                    .to_string()
+                    .trim_matches('"')
+                    .to_string();
+                lens = Some(clean_lens_model(&lens_raw));
             }
 
             // Parse GPS Latitude
@@ -809,7 +979,49 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
             }
 
             if let Some(field) = exif.get_field(exif::Tag::ExposureTime, exif::In::PRIMARY) {
-                shutter_speed = Some(format!("{}s", field.display_value()));
+                let mut exposure_time: Option<f64> = None;
+                match field.value {
+                    exif::Value::Rational(ref rationals) => {
+                        if let Some(r) = rationals.first() {
+                            if r.denom != 0 {
+                                exposure_time = Some(r.num as f64 / r.denom as f64);
+                            }
+                        }
+                    }
+                    exif::Value::SRational(ref rationals) => {
+                        if let Some(r) = rationals.first() {
+                            if r.denom != 0 {
+                                exposure_time = Some(r.num as f64 / r.denom as f64);
+                            }
+                        }
+                    }
+                    exif::Value::Float(ref floats) => {
+                        if let Some(&f) = floats.first() {
+                            exposure_time = Some(f as f64);
+                        }
+                    }
+                    exif::Value::Double(ref doubles) => {
+                        if let Some(&d) = doubles.first() {
+                            exposure_time = Some(d);
+                        }
+                    }
+                    _ => {}
+                }
+
+                if let Some(exp) = exposure_time {
+                    if exp >= 1.0 {
+                        if exp == exp.round() {
+                            shutter_speed = Some(format!("{}s", exp as u32));
+                        } else {
+                            shutter_speed = Some(format!("{:.1}s", exp));
+                        }
+                    } else {
+                        let denom = 1.0 / exp;
+                        shutter_speed = Some(format!("1/{}s", denom.round() as u32));
+                    }
+                } else {
+                    shutter_speed = Some(format!("{}s", field.display_value()));
+                }
             }
 
             if let Some(field) = exif.get_field(exif::Tag::ISOSpeed, exif::In::PRIMARY) {
@@ -821,7 +1033,39 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
             }
 
             if let Some(field) = exif.get_field(exif::Tag::FocalLength, exif::In::PRIMARY) {
-                focal_length = Some(format!("{} mm", field.display_value()));
+                let mut val_mm: Option<u32> = None;
+                match field.value {
+                    exif::Value::Rational(ref rationals) => {
+                        if let Some(r) = rationals.first() {
+                            if r.denom != 0 {
+                                val_mm = Some((r.num as f64 / r.denom as f64).round() as u32);
+                            }
+                        }
+                    }
+                    exif::Value::SRational(ref rationals) => {
+                        if let Some(r) = rationals.first() {
+                            if r.denom != 0 {
+                                val_mm = Some((r.num as f64 / r.denom as f64).round() as u32);
+                            }
+                        }
+                    }
+                    exif::Value::Float(ref floats) => {
+                        if let Some(&f) = floats.first() {
+                            val_mm = Some(f.round() as u32);
+                        }
+                    }
+                    exif::Value::Double(ref doubles) => {
+                        if let Some(&d) = doubles.first() {
+                            val_mm = Some(d.round() as u32);
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(mm) = val_mm {
+                    focal_length = Some(format!("{} mm", mm));
+                } else {
+                    focal_length = Some(format!("{} mm", field.display_value()));
+                }
             }
 
             if let Some(field) =
@@ -895,6 +1139,48 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
         }
     }
 
+    // Fallback for dimensions
+    if width == 0 || height == 0 {
+        if is_raw {
+            if let Some(app_handle) = app {
+                if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
+                    let cache_directory = cache_dir.join("thumbnails");
+                    let _ = std::fs::create_dir_all(&cache_directory);
+
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    let modified = metadata.modified().ok();
+                    let mut hasher = DefaultHasher::new();
+                    file_path.hash(&mut hasher);
+                    file_size.hash(&mut hasher);
+                    modified.hash(&mut hasher);
+                    let hash_val = hasher.finish();
+                    let preview_path = cache_directory.join(format!("{:016x}_preview.jpg", hash_val));
+
+                    // If preview doesn't exist, extract it
+                    if !preview_path.is_file() {
+                        let source_str = file_path.to_string_lossy();
+                        let preview_path_str = preview_path.to_string_lossy();
+                        let _ = quickraw::Export::export_thumbnail_to_file(&source_str, &preview_path_str);
+                    }
+
+                    // Read dimensions from preview image, correcting for orientation
+                    if let Some((w, h)) = read_oriented_dimensions(&preview_path) {
+                        width = w;
+                        height = h;
+                    }
+                }
+            }
+        } else if let Some((w, h)) = read_oriented_dimensions(file_path) {
+            width = w;
+            height = h;
+        }
+    }
+
+    if width == 0 || height == 0 {
+        return Err(format!("Could not read image dimensions for {}", file_path.display()));
+    }
+
     Ok(ImageMetadata {
         file_size,
         dimensions: (width, height),
@@ -915,6 +1201,45 @@ fn get_image_metadata_internal(path: &str) -> Result<ImageMetadata, String> {
         rating,
         keywords,
     })
+}
+
+#[tauri::command]
+fn get_viewer_path(app: AppHandle, path: String) -> Result<String, String> {
+    let file_path = Path::new(&path);
+    if thumbnails::is_raw_file(file_path) {
+        let metadata = std::fs::metadata(file_path)
+            .map_err(|error| format!("Could not read {}: {error}", file_path.display()))?;
+        let file_size = metadata.len();
+        let modified = metadata.modified().ok();
+
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        file_path.hash(&mut hasher);
+        file_size.hash(&mut hasher);
+        modified.hash(&mut hasher);
+        let hash_val = hasher.finish();
+
+        let cache_dir = app
+            .path()
+            .app_cache_dir()
+            .map_err(|error| format!("Could not resolve thumbnail cache: {error}"))?
+            .join("thumbnails");
+        let preview_path = cache_dir.join(format!("{:016x}_preview.jpg", hash_val));
+
+        // If preview doesn't exist, extract it on-the-fly
+        if !preview_path.is_file() {
+            let source_str = file_path.to_string_lossy();
+            let preview_path_str = preview_path.to_string_lossy();
+            let _ = std::fs::create_dir_all(&cache_dir);
+            quickraw::Export::export_thumbnail_to_file(&source_str, &preview_path_str)
+                .map_err(|error| format!("Could not extract RAW preview for {}: {error}", file_path.display()))?;
+        }
+
+        Ok(preview_path.to_string_lossy().into_owned())
+    } else {
+        Ok(path)
+    }
 }
 
 #[tauri::command]
@@ -963,6 +1288,11 @@ fn emit_thumbnail_progress(app: &AppHandle, progress: &ThumbnailProgress) {
     }
 }
 
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1007,6 +1337,7 @@ pub fn run() {
             generate_thumbnails,
             thumbnail_cache_size,
             get_image_metadata,
+            get_viewer_path,
             copy_image_to_clipboard,
             get_catalogued_files,
             remove_from_catalogue,
@@ -1015,7 +1346,8 @@ pub fn run() {
             log_frontend_error,
             show_item_in_file_manager,
             set_photo_keywords,
-            get_all_catalog_tags
+            get_all_catalog_tags,
+            get_app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running Peter's Photo Manager");
@@ -1045,7 +1377,7 @@ mod tests {
 
         // Verify using get_image_metadata_internal (which uses the fallback ExifTool parser)
         let meta =
-            get_image_metadata_internal(&test_file_path.to_string_lossy()).expect("Read metadata");
+            get_image_metadata_internal(None, &test_file_path.to_string_lossy()).expect("Read metadata");
         let kws = meta.keywords.expect("Keywords must exist");
 
         assert_eq!(kws.len(), 2);

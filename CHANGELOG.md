@@ -4,6 +4,24 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.8 — 2026-07-18
+
+### Added
+
+- **RAW image format support**: Added scanning, high-resolution preview caching, and rendering support for camera RAW files (`.NEF`, `.CR2`, `.ARW`, `.DNG`, `.ORF`, `.RW2`, `.PEF`, `.RAF`).
+- **Robust DNG preview fallback**: Integrated an `exiftool` metadata reader fallback to extract high-quality JPEG previews from computational DNG RAW files (like Google Pixel 9 Pro) when pure Rust libraries fail.
+- **Blocking progress modal**: Implemented a centered popup progress overlay with a spinner and real-time status counters ("Processing images: X of Y") that disables interaction during scans.
+- **Tauri capability permissions**: Added `core:window:allow-set-title` to default capabilities config.
+
+### Changed
+
+- **Auto-rotation orientation correction**: Automatically decodes and rotates pixel data of thumbnails and previews based on EXIF orientation metadata, ensuring vertical JPEGs show correctly.
+- **Window title versioning**: Dynamically sets the window title on startup with the package version number and local ISO build timestamp (for dev builds).
+- **Physical cache cleanup**: Wipes the physical thumbnail cache files from disk when resetting the database catalog, resolving stale thumbnail display issues.
+- **Side panels layout optimization**: Scaled down text size and compact padding in both folders and details side panels to prevent tag overflow wrapping.
+- **Exposure details cleaning**: Stripped duplicate aperture string formatting from Lens Model, rounded focal lengths to unit integers (e.g. `18 mm`), and formatted shutter speed denominators as simplified whole integers (e.g. `1/473s`).
+- **Release management skill**: Added a global workspace release manager procedure inside `~/.agents/skills/release-manager/SKILL.md`.
+
 ## 0.3.0-alpha.7 — 2026-07-17
 
 ### Added

@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open, ask } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type AppSettings = {
   watchedFolders: string[];
@@ -437,10 +438,10 @@ function renderDetailsContent(): string {
           <p>${escapeHtml(metadata.camera)}</p>
         </div>
       ` : ""}
-      ${metadata.lens ? `
+      ${(metadata.lens || metadata.focalLength) ? `
         <div class="details-group">
           <label>Lens</label>
-          <p>${escapeHtml(metadata.lens)}</p>
+          <p>${escapeHtml((metadata.lens || metadata.focalLength) ?? "")}</p>
         </div>
       ` : ""}
       ${(metadata.locationCountry || metadata.locationState || metadata.locationCity || metadata.latitude != null) ? `
@@ -464,11 +465,10 @@ function renderDetailsContent(): string {
           <p>${escapeHtml(metadata.dateTaken)}</p>
         </div>
       ` : ""}
-      ${(metadata.aperture || metadata.shutterSpeed || metadata.iso || metadata.focalLength) ? `
+      ${(metadata.aperture || metadata.shutterSpeed || metadata.iso) ? `
         <div class="details-group">
           <label>Exposure</label>
           <p>${[
-            metadata.focalLength,
             metadata.aperture,
             metadata.shutterSpeed,
             metadata.iso ? `ISO ${metadata.iso}` : ""
@@ -702,18 +702,37 @@ function renderDetailsSupportFooter(): string {
 }
 
 function updateProgressStatus(): void {
-  const statusElement = document.querySelector<HTMLElement>("#scan-status");
-  if (!statusElement) {
+  const modalBackdrop = document.querySelector<HTMLElement>(".scan-backdrop");
+  if (!modalBackdrop) {
     return;
   }
-  const status = isScanning
-    ? `Scanning folder entries… ${scanProgress?.imagesFound ?? 0} supported images found so far`
-    : isGeneratingThumbnails
-      ? `Generating thumbnails ${thumbnailProgress?.completed ?? 0} of ${thumbnailProgress?.total ?? 0}`
-      : "";
-  statusElement.hidden = !status;
-  statusElement.classList.toggle("is-scanning", isScanning);
-  statusElement.querySelector("span:last-child")!.textContent = status;
+
+  const modalTitle = modalBackdrop.querySelector("h3");
+  const modalDesc = modalBackdrop.querySelector("p");
+  const progressContainer = modalBackdrop.querySelector<HTMLElement>(".scan-progress-container");
+  const progressBar = modalBackdrop.querySelector<HTMLElement>(".scan-progress-bar");
+
+  if (isScanning) {
+    if (modalTitle) modalTitle.textContent = "Scanning Folder";
+    if (modalDesc) {
+      modalDesc.textContent = `Scanning folder entries… found ${scanProgress?.imagesFound ?? 0} supported images so far`;
+    }
+    if (progressContainer) {
+      progressContainer.style.display = "none";
+    }
+  } else if (isGeneratingThumbnails) {
+    if (modalTitle) modalTitle.textContent = "Processing Images";
+    if (modalDesc) {
+      modalDesc.textContent = `Processing images: ${thumbnailProgress?.completed ?? 0} of ${thumbnailProgress?.total ?? 0}`;
+    }
+    if (progressContainer) {
+      progressContainer.style.display = "";
+    }
+    if (progressBar && thumbnailProgress) {
+      const pct = (thumbnailProgress.completed / (thumbnailProgress.total || 1)) * 100;
+      progressBar.style.width = `${pct}%`;
+    }
+  }
 }
 
 async function selectAndLoadMetadata(path: string | null): Promise<void> {
@@ -810,7 +829,7 @@ async function navigateToImage(index: number): Promise<void> {
     selectedMetadata = catalogMetadata.get(viewerSourcePath) ?? null;
     metadataError = null;
     updateSelectionUI();
-    updateViewerUI();
+    await updateViewerUI();
   }
 }
 
@@ -830,7 +849,9 @@ function openViewer(path: string): void {
   });
   updateSelectionUI();
   renderViewer();
-  window.requestAnimationFrame(updateViewerUI);
+  window.requestAnimationFrame(() => {
+    updateViewerUI();
+  });
 }
 
 function closeViewer(): void {
@@ -856,7 +877,7 @@ function renderViewer(): void {
       <figure class="viewer">
         <div class="viewer-media">
           <img id="viewer-preview" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}" alt="${escapeHtml(thumbnail.name)}" />
-          <img id="viewer-image" src="${escapeHtml(convertFileSrc(viewerSourcePath))}" alt="${escapeHtml(thumbnail.name)}" />
+          <img id="viewer-image" src="" alt="${escapeHtml(thumbnail.name)}" />
         </div>
         <figcaption>
           <span id="viewer-name">${escapeHtml(thumbnail.name)}</span>
@@ -868,14 +889,16 @@ function renderViewer(): void {
     </div>`;
 }
 
-function updateViewerUI(): void {
+async function updateViewerUI(): Promise<void> {
   if (!viewerSourcePath) {
     return;
   }
   const viewerImage = viewerHost.querySelector<HTMLImageElement>("#viewer-image");
   if (!viewerImage) {
     renderViewer();
-    window.requestAnimationFrame(updateViewerUI);
+    window.requestAnimationFrame(() => {
+      updateViewerUI();
+    });
     return;
   }
 
@@ -893,7 +916,19 @@ function updateViewerUI(): void {
   }
   viewerImage.classList.remove("is-loaded");
   viewerImage.dataset.sourcePath = path;
-  viewerImage.src = convertFileSrc(path);
+
+  let renderablePath = path;
+  try {
+    renderablePath = await invoke<string>("get_viewer_path", { path });
+  } catch (err) {
+    console.error("Failed to get viewer path", err);
+  }
+
+  if (viewerSourcePath !== path || viewerImage.dataset.sourcePath !== path) {
+    return;
+  }
+
+  viewerImage.src = convertFileSrc(renderablePath);
   viewerImage.alt = thumbnail.name;
   viewerHost.querySelector<HTMLElement>("#viewer-name")!.textContent = thumbnail.name;
   viewerHost.querySelector<HTMLElement>("#viewer-position")!.textContent = `Original image (${currentIndex + 1} of ${thumbnails.length})`;
@@ -1000,6 +1035,23 @@ function render(): void {
         ${renderDetailsSupportFooter()}
       </aside>
     </section>
+    ${(isScanning || isGeneratingThumbnails) ? `
+      <div class="scan-backdrop">
+        <div class="scan-modal">
+          <div class="scan-spinner"></div>
+          <h3>${isScanning ? "Scanning Folder" : "Processing Images"}</h3>
+          <p>
+            ${isScanning 
+              ? `Scanning folder entries… found ${scanProgress?.imagesFound ?? 0} supported images so far`
+              : `Processing images: ${thumbnailProgress?.completed ?? 0} of ${thumbnailProgress?.total ?? 0}`
+            }
+          </p>
+          <div class="scan-progress-container" style="${isGeneratingThumbnails ? "" : "display: none;"}">
+            <div class="scan-progress-bar" style="width: ${isGeneratingThumbnails && thumbnailProgress ? ((thumbnailProgress.completed / (thumbnailProgress.total || 1)) * 100) : 0}%"></div>
+          </div>
+        </div>
+      </div>
+    ` : ""}
   `;
 
   renderViewer();
@@ -1019,7 +1071,7 @@ function render(): void {
   });
   document.querySelector("#reset-catalogue")?.addEventListener("click", async () => {
     const confirmed = await ask(
-      "This will wipe the entire catalogue and thumbnail records, then rescan all folders from scratch.\n\nCached thumbnail image files will remain on disk.\n\nContinue?",
+      "This will wipe the entire catalogue, thumbnail records, and cached thumbnail image files, then rescan all folders from scratch.\n\nContinue?",
       { title: "⚠ Reset & Rescan", kind: "warning" }
     );
     if (!confirmed) return;
@@ -1528,7 +1580,27 @@ async function initialize(): Promise<void> {
       isGeneratingThumbnails = true;
       scheduleProgressRender();
     });
+    await listen("catalogue-updated", async () => {
+      if (activeFolder) {
+        await loadCatalogFiles(activeFolder);
+        render();
+      }
+    });
     settings = await invoke<AppSettings>("load_settings");
+    try {
+      const appVersion = await invoke<string>("get_app_version");
+      const isDev = (import.meta as any).env.DEV;
+      let title = `Peter’s Photo Manager v${appVersion}`;
+      if (isDev) {
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const localIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        title += `-${localIso}`;
+      }
+      await getCurrentWindow().setTitle(title);
+    } catch (err) {
+      console.error("Failed to set window title:", err);
+    }
     await refreshCacheSize();
     await loadAllCatalogTags();
     thumbnailSize = settings.thumbnailSize;

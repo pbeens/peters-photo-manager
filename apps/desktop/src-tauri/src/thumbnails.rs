@@ -1,5 +1,5 @@
 use crate::scanner::ImageFile;
-use image::ImageFormat;
+use image::{ImageDecoder, ImageFormat};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
@@ -98,6 +98,49 @@ where
     Ok(ThumbnailResult { thumbnails, errors })
 }
 
+pub fn is_raw_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "nef" | "cr2" | "arw" | "dng" | "orf" | "rw2" | "pef" | "raf"
+            )
+        })
+}
+
+pub fn open_with_orientation(path: &Path) -> Result<image::DynamicImage, String> {
+    let reader = image::ImageReader::open(path)
+        .map_err(|error| format!("Could not open image file {}: {error}", path.display()))?;
+    let mut decoder = reader.into_decoder()
+        .map_err(|error| format!("Could not initialize decoder for {}: {error}", path.display()))?;
+    let orientation = decoder.orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut img = image::DynamicImage::from_decoder(decoder)
+        .map_err(|error| format!("Could not decode image {}: {error}", path.display()))?;
+    img.apply_orientation(orientation);
+    Ok(img)
+}
+
+fn extract_preview_with_exiftool(source: &Path, dest: &Path) -> Result<(), String> {
+    // Try PreviewImage, JpgFromRaw, and ThumbnailImage tags in that order
+    for tag in &["-PreviewImage", "-JpgFromRaw", "-ThumbnailImage"] {
+        if let Ok(output) = std::process::Command::new("exiftool")
+            .arg("-b")
+            .arg(*tag)
+            .arg(source)
+            .output()
+        {
+            if output.status.success() && !output.stdout.is_empty() {
+                if std::fs::write(dest, output.stdout).is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Err("No embedded JPEG preview found in raw metadata".to_string())
+}
+
 pub fn thumbnail_for(file: &ImageFile, cache_directory: &Path) -> Result<PathBuf, String> {
     let source = Path::new(&file.path);
     let metadata = fs::metadata(source)
@@ -107,23 +150,63 @@ pub fn thumbnail_for(file: &ImageFile, cache_directory: &Path) -> Result<PathBuf
     source.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
     modified.hash(&mut hasher);
-    let cache_path = cache_directory.join(format!("{:016x}.jpg", hasher.finish()));
+    let hash_val = hasher.finish();
+    let cache_path = cache_directory.join(format!("{:016x}.jpg", hash_val));
+    let preview_path = cache_directory.join(format!("{:016x}_preview.jpg", hash_val));
 
-    if cache_path.is_file() {
+    let is_raw = is_raw_file(source);
+
+    if is_raw {
+        if cache_path.is_file() && preview_path.is_file() {
+            return Ok(cache_path);
+        }
+    } else if cache_path.is_file() {
         return Ok(cache_path);
     }
 
-    let image = image::open(source)
-        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
-    image
-        .thumbnail(THUMBNAIL_EDGE, THUMBNAIL_EDGE)
-        .save_with_format(&cache_path, ImageFormat::Jpeg)
-        .map_err(|error| {
-            format!(
-                "Could not write thumbnail for {}: {error}",
-                source.display()
-            )
-        })?;
+    if is_raw {
+        let source_str = source.to_string_lossy();
+        let preview_path_str = preview_path.to_string_lossy();
+
+        // 1. Try extracting the preview using quickraw
+        let quickraw_res = quickraw::Export::export_thumbnail_to_file(&source_str, &preview_path_str);
+
+        // 2. If quickraw fails, or the file was not created, or is empty (0 bytes), fallback to exiftool
+        if quickraw_res.is_err() 
+            || !preview_path.is_file() 
+            || fs::metadata(&preview_path).map(|m| m.len()).unwrap_or(0) == 0 
+        {
+            let _ = fs::remove_file(&preview_path); // clean up any empty/invalid file
+            extract_preview_with_exiftool(source, &preview_path)
+                .map_err(|error| format!("Could not extract RAW preview via quickraw or exiftool for {}: {error}", source.display()))?;
+        }
+
+        // Open the extracted preview JPEG to create the thumbnail (applying EXIF orientation if present)
+        let image = open_with_orientation(&preview_path)
+            .map_err(|error| format!("Could not decode and orient extracted preview for {}: {error}", source.display()))?;
+        image
+            .thumbnail(THUMBNAIL_EDGE, THUMBNAIL_EDGE)
+            .save_with_format(&cache_path, ImageFormat::Jpeg)
+            .map_err(|error| {
+                format!(
+                    "Could not write thumbnail for RAW {}: {error}",
+                    source.display()
+                )
+            })?;
+    } else {
+        // Open standard image applying EXIF orientation
+        let image = open_with_orientation(source)
+            .map_err(|error| format!("Could not decode and orient {}: {error}", source.display()))?;
+        image
+            .thumbnail(THUMBNAIL_EDGE, THUMBNAIL_EDGE)
+            .save_with_format(&cache_path, ImageFormat::Jpeg)
+            .map_err(|error| {
+                format!(
+                    "Could not write thumbnail for {}: {error}",
+                    source.display()
+                )
+            })?;
+    }
 
     Ok(cache_path)
 }
@@ -162,6 +245,17 @@ mod tests {
     use crate::scanner::ImageFile;
     use image::RgbImage;
     use std::fs;
+
+    #[test]
+    fn test_is_raw_file() {
+        use super::is_raw_file;
+        use std::path::Path;
+
+        assert!(is_raw_file(Path::new("photo.nef")));
+        assert!(is_raw_file(Path::new("photo.CR2")));
+        assert!(is_raw_file(Path::new("photo.dng")));
+        assert!(!is_raw_file(Path::new("photo.jpg")));
+    }
 
     #[test]
     fn creates_and_reuses_a_cached_thumbnail() {

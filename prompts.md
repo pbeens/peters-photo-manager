@@ -1,5 +1,57 @@
 # Prompt Log
 
+## 2026-07-18T17:46:49-0400 — Package v0.3.0-alpha.8 and bump version to v0.3.0-alpha.9
+
+- Prompt summary: Run the full release manager skill, compiling the production build, copying the DMG installer to the exports directory, and bumping the active configuration files to v0.3.0-alpha.9.
+
+## 2026-07-18T13:26:13-0400 — Catch up on prompt log and move skills
+
+- Prompt summary: Read global GEMINI.md and catch up on prompt log entries, relocate workspace skill to the shared ~/.agents/skills/ directory.
+
+## 2026-07-18T13:21:47-0400 — Fix screenshot path typo in README
+
+- Prompt summary: Fix a .pngg typo in the main application screenshot image tag inside README.md.
+
+## 2026-07-18T10:03:37-0400 — Remove duplicate focal length in Exposure
+
+- Prompt summary: Remove duplicate focal length display from the Exposure details panel, using it as a fallback under Lens when the lens model is absent.
+
+## 2026-07-18T09:51:36-0400 — Create Tauri release skill
+
+- Prompt summary: Document a release-manager skill outlining compilation, artifact relocation, version bumping, and sync checks for macOS and Windows setup packages.
+
+## 2026-07-18T09:47:36-0400 — Round lens focal length and simplify shutter speeds
+
+- Prompt summary: Simplify shutter speed denominators to whole integers, round LensModel millimeter decimals, and strip lens aperture strings.
+
+## 2026-07-18T09:45:02-0400 — Round details lens focal length and shutter speeds
+
+- Prompt summary: Clean focal lengths in LensModel to whole millimeters, strip duplicate aperture info from LensModel, and round shutter speed denominators to one decimal place.
+
+## 2026-07-18T09:42:15-0400 — Round exposure decimals in details panel
+
+- Prompt summary: Format EXIF shutter speeds (exposure times) as simplified fractions or short decimal seconds to avoid displaying 15 trailing decimal places.
+
+## 2026-07-18T09:41:30-0400 — Compact sidebar and details panel typography
+
+- Prompt summary: Compact layout text and padding in both sidebars (folders and details panels) to prevent layout overflows and tag wrapping.
+
+## 2026-07-18T09:35:47-0400 — Implement DNG thumbnail fallback reader
+
+- Prompt summary: Implement a metadata extraction fallback using exiftool to retrieve embedded JPEG previews from computational DNG RAW files when standard libraries fail.
+
+## 2026-07-18T09:32:46-0400 — Grant window title capabilities
+
+- Prompt summary: Diagnose and resolve a missing window title issue by adding core:window:allow-set-title to capabilities and formatting the title string without a leading underscore.
+
+## 2026-07-18T09:30:42-0400 — Advance app version to 0.3.0-alpha.8
+
+- Prompt summary: Update the application version to 0.3.0-alpha.8 in package.json, Cargo.toml, tauri.conf.json, README.md, and rebuild lockfiles.
+
+## 2026-07-18T09:29:56-0400 — Verify working package version
+
+- Prompt summary: Retrieve and report the current active package version string from configuration files.
+
 ## 2026-07-17T14:54:45-0400 — Explain remaining uncommitted alpha.7 files
 
 - Prompt summary: Explain why the main branch shows only the prompt log and an unknown JPEG original as pending upload files after the alpha.7 release merge.

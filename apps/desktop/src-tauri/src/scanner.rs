@@ -183,7 +183,7 @@ fn is_supported_image(path: &Path) -> bool {
         .is_some_and(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "jpg" | "jpeg" | "png" | "webp"
+                "jpg" | "jpeg" | "png" | "webp" | "nef" | "cr2" | "arw" | "dng" | "orf" | "rw2" | "pef" | "raf"
             )
         })
 }
@@ -192,6 +192,19 @@ fn is_supported_image(path: &Path) -> bool {
 mod tests {
     use super::scan_directory;
     use std::fs;
+
+    #[test]
+    fn test_is_supported_image() {
+        use super::is_supported_image;
+        use std::path::Path;
+
+        assert!(is_supported_image(Path::new("test.jpg")));
+        assert!(is_supported_image(Path::new("test.nef")));
+        assert!(is_supported_image(Path::new("test.CR2")));
+        assert!(is_supported_image(Path::new("test.dng")));
+        assert!(!is_supported_image(Path::new("test.txt")));
+        assert!(!is_supported_image(Path::new("test")));
+    }
 
     #[test]
     fn finds_supported_images_recursively() {
