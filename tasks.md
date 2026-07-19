@@ -2,8 +2,8 @@
 
 ## Current Focus
 
-Phase 8 multi-selection, high-fidelity RAW rendering, Google Maps links, and lens metadata fixes — completed and packaged in `v0.3.0-alpha.9`.
-Active focus: version `0.3.0-alpha.10` development cycle.
+Phase 9 subfolder creation, drag-and-drop file organization, context-menu viewport bounding, and open folder settings persistence — completed and packaged in `v0.3.0-alpha.11`.
+Active focus: version `0.3.0-alpha.12` development cycle.
 
 ## Next Tasks
 
@@ -58,3 +58,4 @@ Active focus: version `0.3.0-alpha.10` development cycle.
 - Phase 1 manually accepted: one selected folder is intentional for this phase.
 - Phase 2 thumbnail grid implemented.
 - Multi-folder manager, All Folders view, sidebar filters, cache display, context menu, and cached preview implemented.
+- Subfolder creation, drag-and-drop file organization, and active folder persistence implemented and merged in v0.3.0-alpha.11.
