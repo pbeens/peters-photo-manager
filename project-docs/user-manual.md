@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.10` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
+`0.3.0-alpha.12` is an early testing build for macOS. It supports local folder browsing, subfolder creation, drag-and-drop file organization, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
 
 ## Start the Application
 
@@ -23,6 +23,19 @@ Use `Control-C` in Terminal to stop the development application.
 4. Select a folder to scan and show its images.
 
 Added folders are saved locally. Removing a folder from the sidebar removes only the application’s saved reference; it never changes the files on disk.
+
+## Manage and Organize Folders
+
+### Create Subfolder
+1. Right-click on any folder in the left sidebar tree.
+2. Select **Create subfolder** from the context menu.
+3. Enter the name of the new subfolder in the dialog modal and click **Create** (or press Enter).
+4. The folder will be created on disk and will instantly appear in the sidebar. It will remain open and visible even if it does not contain any images yet, regardless of your "Hide folders with no images" settings.
+
+### Move Photos (Drag and Drop)
+1. Select one or more photos in the thumbnail grid.
+2. Click and drag the selection over any folder in the sidebar tree. You'll see a dashed border highlighting the active target folder and a compact badge indicating the number of dragged photos under the cursor.
+3. Release the mouse button to drop the images. They will be moved on disk and the catalogue database will update automatically.
 
 ## Browse Folders
 

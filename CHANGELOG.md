@@ -4,6 +4,21 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.11 — 2026-07-19
+
+### Added
+
+- **Empty Subfolder Creation**: Added a context-menu option to create subfolders on disk directly from the sidebar. Empty directories remain open and visible in the tree even when the "Hide folders with no images" filter is enabled.
+- **Image Drag-and-Drop**: Supported dragging single or multiple selected photos from the grid onto directory nodes in the sidebar, which moves the files on disk and automatically updates their database records.
+- **Small Drag Badge**: Created a custom floating badge under the cursor showing the number of dragged photos, replacing the large default browser drag representation to keep target folder names visible.
+- **Active Folder Persistence**: The program now saves the last open folder to settings on exit and restores it on startup, automatically expanding parent directories in the sidebar to reveal nested targets.
+
+### Fixed
+
+- **Stable Drop Targets (Flicker Fix)**: Stabilized hover highlights by disabling mouse events on children of folder rows while dragging, preventing outline blinking.
+- **Tauri File-Drop Interceptions**: Disabled Tauri's native window file-drop listeners and formatted drag payloads with custom prefixes to bypass OS-level copy overrides, ensuring correct drag cursors and drop-trigger operations in WebKit.
+- **Context Menu Bounding**: Adjusted the position coordinates of context menus to guarantee they stay within the screen boundaries.
+
 ## 0.3.0-alpha.10 — 2026-07-19
 
 ### Added
