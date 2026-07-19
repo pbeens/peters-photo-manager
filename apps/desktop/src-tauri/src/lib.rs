@@ -35,6 +35,7 @@ fn save_display_preferences(
     thumbnail_size: u16,
     thumbnail_sort_key: String,
     thumbnail_sort_ascending: bool,
+    hide_empty_folders: bool,
 ) -> Result<AppSettings, String> {
     if !(120..=300).contains(&thumbnail_size) {
         return Err("Thumbnail size must be between 120 and 300 pixels.".to_string());
@@ -50,6 +51,7 @@ fn save_display_preferences(
     settings.thumbnail_size = thumbnail_size;
     settings.thumbnail_sort_key = thumbnail_sort_key;
     settings.thumbnail_sort_ascending = thumbnail_sort_ascending;
+    settings.hide_empty_folders = hide_empty_folders;
     settings::save(&app, &settings)?;
     Ok(settings)
 }
@@ -335,6 +337,100 @@ fn delete_from_disk(db_state: tauri::State<'_, DbState>, path: String) -> Result
 
     // Remove record from database
     db::delete_file_record(&conn, &path).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn create_directory(parent_path: String, name: String) -> Result<String, String> {
+    let parent = Path::new(&parent_path);
+    if !parent.is_dir() {
+        return Err(format!("Parent directory '{}' does not exist or is not a directory.", parent_path));
+    }
+    let new_dir = parent.join(&name);
+    if new_dir.exists() {
+        return Err(format!("A file or directory named '{}' already exists.", name));
+    }
+    std::fs::create_dir(&new_dir)
+        .map_err(|err| format!("Failed to create directory: {}", err))?;
+    Ok(new_dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn set_selected_folder(app: AppHandle, folder: Option<String>) -> Result<(), String> {
+    let mut settings = settings::load(&app)?;
+    settings.selected_folder = folder;
+    settings::save(&app, &settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn print_log(msg: String) {
+    println!("[FRONTEND LOG]: {}", msg);
+}
+
+#[tauri::command]
+async fn move_files(
+    app: AppHandle,
+    db_state: tauri::State<'_, DbState>,
+    paths: Vec<String>,
+    target_folder: String,
+) -> Result<(), String> {
+    let conn_mutex = &db_state.0;
+    let target_dir = Path::new(&target_folder);
+    if !target_dir.is_dir() {
+        return Err(format!("Target folder '{}' is not a directory.", target_folder));
+    }
+
+    let settings = settings::load(&app)?;
+    let matching_watched = settings.watched_folders.iter()
+        .find(|root| target_dir.starts_with(Path::new(root)))
+        .cloned();
+
+    let new_folder_id = if let Some(ref watched) = matching_watched {
+        let conn = conn_mutex.lock().map_err(|_| "Failed to lock database".to_string())?;
+        Some(db::add_folder(&conn, watched).map_err(|err| err.to_string())?)
+    } else {
+        None
+    };
+
+    for path_str in paths {
+        let old_path = Path::new(&path_str);
+        if !old_path.exists() {
+            continue;
+        }
+        let file_name = old_path.file_name()
+            .ok_or_else(|| format!("Invalid file name for path: {}", path_str))?;
+        let new_path = target_dir.join(file_name);
+
+        if new_path.exists() {
+            return Err(format!(
+                "A file named '{}' already exists in the target folder.",
+                file_name.to_string_lossy()
+            ));
+        }
+
+        // Move the file on disk
+        std::fs::rename(&old_path, &new_path)
+            .map_err(|err| format!("Failed to move file '{}' on disk: {}", file_name.to_string_lossy(), err))?;
+
+        // Update in database
+        let conn = conn_mutex.lock().map_err(|_| "Failed to lock database".to_string())?;
+        let new_path_str = new_path.to_string_lossy().to_string();
+        let new_name = file_name.to_string_lossy().to_string();
+
+        if let Some(folder_id) = new_folder_id {
+            conn.execute(
+                "UPDATE files SET path = ?1, name = ?2, folder_id = ?3 WHERE path = ?4",
+                rusqlite::params![new_path_str, new_name, folder_id, path_str],
+            ).map_err(|err| format!("Failed to update database path and folder: {}", err))?;
+        } else {
+            conn.execute(
+                "UPDATE files SET path = ?1, name = ?2 WHERE path = ?3",
+                rusqlite::params![new_path_str, new_name, path_str],
+            ).map_err(|err| format!("Failed to update database path: {}", err))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -1746,7 +1842,11 @@ pub fn run() {
             set_photo_keywords,
             get_all_catalog_tags,
             get_app_version,
-            prioritize_raw_rendering_for_folder
+            prioritize_raw_rendering_for_folder,
+            create_directory,
+            move_files,
+            set_selected_folder,
+            print_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running Peter's Photo Manager");

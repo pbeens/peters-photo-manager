@@ -1,235 +1,192 @@
-# Audit: Side panel footers still broken (regression after “panel-footer” fix)
+# Audit: Plus sign during photo drag-and-drop onto folders
 
-**Date:** 2026-07-17  
-**Scope:** Read-only. No application code changed.  
-**Files:** `apps/desktop/src/main.ts`, `apps/desktop/src/styles.css`  
-**Evidence:** Latest screenshot — left “Submit Feedback” is at the bottom of the folder column; right “Buy me a coffee” sits mid-panel under the empty Details copy, with a large empty dark region below it.
+**Date:** 2026-07-19  
+**Scope:** Read-only analysis. No application code changed.  
+**Branch:** `feature/folder-create-drag-drop`  
+**Files:** `apps/desktop/src/main.ts`, `apps/desktop/src/styles.css`, `apps/desktop/src-tauri/src/lib.rs`  
+**Symptom:** When dragging thumbnail(s) over a folder in the left tree, a **plus sign** appears (typically the macOS green “+” badge next to the pointer).
 
-## Goal (unchanged)
+## Goal
 
-“Submit Feedback” (left) and “Buy me a coffee” (right) must share the **same bottom baseline** in the two side columns (divider + link aligned across the window).
+Explain **why** the plus sign appears, confirm it is not intentional app chrome for “move,” and record where a fix would need to act.
 
-## What the latest fix tried
+## Short answer
 
-The previous audit recommended a shared three-row flex pattern. The current code partially adopted that:
+The plus sign is **not drawn by this app’s CSS or HTML**. It is the **native platform drop-effect cursor badge**, which on macOS means **“copy”**.
 
-- Shared class `.panel-footer`
-- Shared class `.panel-body` with `flex: 1 1 auto`
-- Left footer is a direct sibling under `.sidebar`
-- Right footer is a sibling under `.details-panel` via `renderDetailsSupportFooter()`
-- `updateSelectionUI()` only rewrites `#details-body` (good — footer not destroyed on selection)
+The app already intends a **move** (not a copy):
 
-That was the right *direction*, but the **right column structure and flex sizing are still wrong**, so the coffee link is now **worse** than a slight misalignment: it no longer pins to the bottom at all.
-
-## Current markup (rescanned)
-
-### Left (works: footer at bottom)
-
-```text
-aside.sidebar                    flex column, height: 100%
-  .sidebar-heading               auto height
-  .folder-list.panel-body        flex: 1 1 auto  ← grows, fills middle
-  .panel-footer                  auto            ← “Submit Feedback”
-```
-
-### Right (broken: footer packs under content)
-
-```text
-aside.details-panel              flex column, height: 100%
-  .details-body.panel-body       flex: 1 1 auto, display:flex, overflow:hidden
-    .sidebar-heading             “DETAILS” lives INSIDE the body
-    .details-empty
-      | .details-content
-  .panel-footer                  “Buy me a coffee”
-```
-
-So the columns are **still not the same tree**:
-
-| | Left | Right |
+| Layer | Intent | Evidence |
 | --- | --- | --- |
-| Header | Outside body | **Inside** `#details-body` |
-| Growing region | `.folder-list` only | Whole details UI wrapped in one body |
-| Footer | Sibling of body | Sibling of body (OK in theory) |
+| `dragstart` | Move | `event.dataTransfer.effectAllowed = "move"` |
+| `dragenter` / `dragover` on folders | Move | `event.dataTransfer.dropEffect = "move"` |
+| Payload prefix | Move | `pm-move:${JSON.stringify(paths)}` |
+| Backend | Move | `std::fs::rename` in `move_files` |
+| Custom drag ghost | Count badge only | Folder emoji + “N photo(s)” — **no “+”** |
 
-## Current CSS (rescanned)
+So the plus is a **cursor mismatch**: system UI says “copy,” actual operation is “move.”
 
-```css
-.sidebar,
-.details-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 28px 18px 20px;
-}
+## What the UI actually draws during drag
 
-.panel-body {
-  flex: 1 1 auto;   /* auto basis — unreliable for “eat free space” */
-  min-height: 0;
-}
+### Custom drag image (app-controlled)
 
-.details-body {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;  /* no flex:1 of its own beyond .panel-body */
-}
+In `main.ts` (`dragstart` handler, ~2152–2183):
 
-.details-empty {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  align-items: center;
-  justify-content: center;
-}
+1. Clears transfer data, then sets `text/plain` to `pm-move:…`.
+2. Sets `effectAllowed = "move"`.
+3. Builds a temporary `.drag-feedback-icon` element:
+   - Amber pill (`#dca461`)
+   - `🗂️` + `"N photo"` / `"N photos"`
+4. Calls `setDragImage(dragIcon, 40, 15)`.
+5. Adds `is-dragging` on the card and `is-dragging-files` on `body`.
 
-.panel-footer {
-  flex: 0 0 auto;
-  width: 100%;
-  margin-top: 14px;   /* not margin-top: auto */
-  padding-top: 12px;
-  border-top: 1px solid #50524c;
-  text-align: center;
-}
-```
+There is **no plus character**, CSS `content`, or icon that would render a “+” in that ghost.
 
-## Why the screenshot looks “really messed up”
+### Folder drop target highlight (app-controlled)
 
-### Observed layout
+- On `dragover` over a real folder (not “All folders”), the target gets class `drag-over`.
+- CSS (`.folder-item.drag-over`): darker background + dashed amber outline.
+- On drag end / leave / drop, that class is removed.
 
-```text
-DETAILS
-Select a photograph to view details.
-──────── (footer border)
-Buy me a coffee
-                    ← large empty dark area
-                    ← bottom of window
-```
+Again: **no plus** in markup or styles.
 
-Left column still has Feedback on the bottom chrome. Right column’s coffee is **content-adjacent**, not window-bottom-adjacent.
-
-### Cause: the growing middle on the right is not actually filling the column
-
-For the footer sibling to sit on the bottom edge, **`.panel-body` must consume all free height** in `.details-panel`.
-
-In the screenshot it does **not**. The body is only as tall as heading + empty message. The footer therefore sits immediately under that short stack. The remaining column height is empty space *below* the footer — classic “flex child did not grow” failure.
-
-Contributing factors:
-
-1. **`flex: 1 1 auto` on `.panel-body`**  
-   Flex basis `auto` sizes from content first. In nested/grid + WebView layouts this often fails to absorb free space the way `flex: 1 1 0` / `flex: 1` does. Left *looks* fine because the folder tree is tall; the right empty state is short, so the failure is obvious.
-
-2. **Header nested inside the body on the right only**  
-   Left: `heading | body | footer`.  
-   Right: `body(heading + empty) | footer`.  
-   Even after growth is fixed, empty-state vertical centering and spacing will not match left unless the trees match.
-
-3. **Nested flex without a hard height contract**  
-   `.details-empty { flex: 1 }` only expands if `.details-body` already has a definite used height. If the body stays content-sized, empty never fills, text stays near the top, footer stays under it.
-
-4. **No `margin-top: auto` belt-and-suspenders on `.panel-footer`**  
-   Not required if body growth works, but with the current failure there is nothing pulling the footer to the bottom either.
-
-5. **Partial adoption of the prior audit**  
-   Shared class names were added, but the right panel was not made a true clone of the left three-row layout, and flex basis was left as `auto`.
-
-## What “fixed” must look like
-
-Mirror the **left column exactly**:
-
-```text
-aside.details-panel
-  .sidebar-heading / .panel-header     ← OUTSIDE the scroll/grow region
-  #details-body.panel-body             ← ONLY empty state or metadata list
-  .panel-footer                        ← coffee link only
-```
-
-And force the middle to take free space with a **zero flex basis**:
+### Relevant CSS only
 
 ```css
-.sidebar,
-.details-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 28px 18px 20px;
-  box-sizing: border-box;
+.folder-item.drag-over {
+  background: #50524c !important;
+  outline: 2px dashed #dca461;
 }
 
-.panel-body {
-  flex: 1 1 0;          /* critical: 0 basis, not auto */
-  min-height: 0;
-  overflow: auto;
-}
-
-.panel-footer {
-  flex: 0 0 auto;
-  margin-top: 0;        /* spacing via padding only; same both sides */
-  padding-top: 12px;
-  border-top: 1px solid #50524c;
-  text-align: center;
-  width: 100%;
+body.is-dragging-files .folder-item * {
+  pointer-events: none; /* stabilizes hit-testing over folder row children */
 }
 ```
 
-### Markup / JS changes required
+Nothing here sets a cursor image or a “+” glyph.
 
-1. **`render()` details column** — same order as folders:
+## Drop pipeline (current behavior)
 
-   ```html
-   <aside class="details-panel" id="details-panel">
-     <div class="sidebar-heading panel-header">
-       <p class="eyebrow">Details</p>
-     </div>
-     <div class="panel-body" id="details-body">
-       <!-- empty OR details-content only -->
-     </div>
-     <div class="panel-footer">…Buy me a coffee…</div>
-   </aside>
-   ```
+1. **`dragstart`** on `.thumbnail-card`  
+   - Dragged paths = whole multi-selection if the card is selected, else just that card.  
+   - `effectAllowed = "move"`.  
+   - Custom drag image as above.
 
-2. **`renderDetailsContent()`** — stop emitting the Details heading. Heading is stable chrome; body is only:
+2. **`dragenter` / `dragover`**  
+   - If target is `[data-folder-path]` and not “All folders”:
+     - `preventDefault()` (required so drop is allowed, especially WebKit)
+     - `dropEffect = "move"`
+     - folder marked `drag-over`
+   - If not a valid folder target: clear `drag-over` and **do not** set `dropEffect` / **do not** always `preventDefault`.
 
-   - empty: `<div class="details-empty"><p>…</p></div>`
-   - selected: `<div class="details-content">…</div>`
+3. **`drop`**  
+   - Parses `pm-move:…` (or legacy JSON / newline list).  
+   - Calls `moveFilesToFolder` → Tauri `move_files`.
 
-3. **`updateSelectionUI()`** — keep updating only `#details-body` (already correct). Do not replace `#details-panel`.
+4. **`move_files` (Rust)**  
+   - Validates target directory.  
+   - Per file: `std::fs::rename(old, new)` then updates DB path/name/folder_id.  
+   - Fail if a same-named file already exists in the target.  
+   - **Rename = move**, not copy.
 
-4. **Do not** put the coffee footer inside `#details-body`.
+## Why the plus still shows
 
-5. Optional hardening: `margin-top: auto` on `.panel-footer` **in addition to** `flex: 1 1 0` on `.panel-body` so a future content change cannot undock the footer.
+### 1. It is the OS “copy” drop cursor, not app chrome
 
-### Nuclear option (only if flex still fails in WKWebView)
+On macOS, HTML5 drag-and-drop cursors commonly show:
 
-Shell-level grid with a shared bottom row for both links — guaranteed same Y. Prefer fixing the three-row flex first; it is enough if implemented symmetrically.
-
-## Explicit “do not” list for the next edit
-
-- Do not only tweak `margin-top` / `padding-top` on the coffee footer while the body stays content-sized.  
-- Do not keep the Details title inside `#details-body` if the left title stays outside `.folder-list`.  
-- Do not use `flex: 1 1 auto` for the expanding middle; use **`flex: 1 1 0`** (or `flex: 1` with `min-height: 0`).  
-- Do not nest the footer in another wrapper on one side only.
-
-## Verification checklist
-
-- [ ] Empty details: coffee divider aligns with Submit Feedback divider  
-- [ ] Empty details: “Select a photograph…” is centered in the **middle** of the details column (or top of body if preferred), **not** glued to the coffee link with a void under the link  
-- [ ] Selected photo, short metadata: footer still bottom-aligned with left  
-- [ ] Selected photo, long metadata: body scrolls; footer stays pinned  
-- [ ] Window resize height: both footers move together  
-- [ ] After clicking many thumbnails (`updateSelectionUI` only): footer never jumps mid-panel  
-
-## Symptom → cause (this regression)
-
-| Screenshot | Cause |
+| Drop effect | Typical system badge |
 | --- | --- |
-| Coffee mid-panel, void below | `.panel-body` on the right not consuming free height; footer packs under short content |
-| Feedback still at bottom | Left three-row layout effectively works with a tall folder list |
-| Shared `.panel-footer` didn’t fix alignment | Same class, different flex success / different header nesting |
+| `copy` | Green circle with **+** |
+| `move` | Arrow / no plus (varies) |
+| `link` | Curved arrow |
+| `none` | “not allowed” |
 
-## Out of scope
+The user-visible plus matches **copy**, not the app’s dashed folder highlight or the amber “N photos” ghost.
 
-- Link URLs/copy  
-- Applying the code fix in this audit  
+### 2. WebKit / WKWebView (Tauri on macOS) often ignores requested move
+
+This desktop shell is Tauri → **WKWebView** on macOS.
+
+For **in-page** drags (draggable DOM nodes + custom `text/plain` payload, not native OS file promises), WebKit frequently:
+
+- Still paints the **copy (+)** badge even when JS sets `effectAllowed = "move"` and `dropEffect = "move"`.
+- Treats generic string payloads more like “copy this data” than “move a file.”
+- Lets the **system** composite the drop-effect badge **on top of** `setDragImage()`.  
+  `setDragImage` only replaces the dragged ghost; it does **not** remove the OS effect indicator.
+
+So the app can correctly set move semantics and still show a plus in the cursor chrome.
+
+### 3. Not caused by the custom drag feedback content
+
+The ghost is only:
+
+```html
+<span>🗂️</span>
+<span>N photo(s)</span>
+```
+
+No “+”. If the plus is next to the pointer as a small system badge, that is further evidence it is the **platform drop-effect cursor**, not the drag image.
+
+### 4. Not caused by folder-create UI
+
+Folder create/subfolder flows and context menus are separate. The tree does not inject a “+” button on `drag-over`. The only drag-specific folder styling is background + dashed outline.
+
+## What is *not* the cause
+
+| Hypothesis | Why ruled out |
+| --- | --- |
+| Plus in custom drag image HTML | Image is emoji + count text only |
+| CSS `::before` / `content: "+"` on drag | No such rules under drag classes |
+| Backend copies files | Uses `std::fs::rename` |
+| Accidental `dropEffect = "copy"` in code | Code sets `"move"` on enter/over valid folders |
+| Intentional “add to folder” copy UX | Payload, command name, and FS op are all move |
+
+## Gaps / secondary issues (related, not the plus itself)
+
+1. **`dropEffect` only set on valid folders**  
+   Outside valid targets the code often neither sets `dropEffect = "none"` nor consistently `preventDefault`s. That can make the cursor feel inconsistent, but the plus **over folders** is still the copy badge problem.
+
+2. **`text/plain` + custom `pm-move:` prefix**  
+   Works for app drop handling, but does not look like a native file move to the OS, so WebKit has less reason to show a pure “move” cursor.
+
+3. **No CSS attempt to hide the system drag cursor**  
+   Even `cursor: none` during drag is unreliable for suppressing WebKit’s drag-effect badge; the badge is often outside normal CSS cursor control.
+
+## Recommended directions (for a later fix; not applied here)
+
+Ordered from least to most invasive:
+
+1. **Keep asserting move** (already done):  
+   `effectAllowed = "move"` on start; `dropEffect = "move"` on enter/over; optionally also set `dropEffect = "none"` when not over a valid folder and `preventDefault` on a broader drag surface so the only allowed effect is move.
+
+2. **Try broader `effectAllowed` then force move on over**  
+   Some engines behave better with `effectAllowed = "copyMove"` or `"all"` while still setting `dropEffect = "move"` on valid targets. Worth a quick try on macOS WKWebView; may not remove the plus.
+
+3. **Accept that the OS badge may be unfixable via pure web APIs**  
+   Rely on existing folder `drag-over` styling + the custom “N photos” ghost to communicate “move here.” Optionally add a small in-app status line (“Move N photos to FolderName”) instead of fighting the system cursor.
+
+4. **Platform / Tauri-specific path only if must kill the plus**  
+   Native file drag session APIs or a custom overlay that fully owns feedback (and may still not suppress WKWebView’s badge). Higher cost; not justified unless the plus is a hard product requirement to remove.
+
+5. **Do not “fix” by changing the operation to copy**  
+   That would make the plus accurate but would contradict current product behavior (reorganize into folders via move/rename).
+
+## Verification checklist (when fixing later)
+
+- Drag one photo onto another folder: no green **+** (or accepted substitute feedback), drop **moves** file on disk and in DB.
+- Multi-select drag: same.
+- Drag over “All folders” / non-folder UI: no drop, clear “not allowed” or no-op.
+- Same-folder drop: no-op (already filtered in `moveFilesToFolder` when parent already equals target).
+- Name collision in target: error path still works.
+- Windows smoke test: drop cursor semantics differ; confirm move still works and feedback is sane.
+
+## Conclusion
+
+The plus sign appears because **macOS / WebKit shows the system “copy” drop-effect badge** during HTML5 drags, even though this app:
+
+- requests **move** via `effectAllowed` / `dropEffect`,
+- labels the payload **`pm-move:`**,
+- and performs a real filesystem **rename** in `move_files`.
+
+It is **not** an intentional “+” control or copy action in application CSS/HTML. Removing it is a **cursor / platform DnD feedback** problem, not a folder-tree rendering bug, and may require more than the current `dropEffect = "move"` lines already present in `main.ts`.

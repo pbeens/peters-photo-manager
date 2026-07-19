@@ -9,6 +9,8 @@ type AppSettings = {
   thumbnailSize: number;
   thumbnailSortKey: ThumbnailSortKey;
   thumbnailSortAscending: boolean;
+  hideEmptyFolders: boolean;
+  selectedFolder: string | null;
 };
 
 type FolderEntry = { name: string; path: string; depth: number; containsImages: boolean };
@@ -90,6 +92,9 @@ document.body.append(contextMenuHost);
 const removalDialogHost = document.createElement("div");
 removalDialogHost.id = "removal-dialog-host";
 document.body.append(removalDialogHost);
+const folderDialogHost = document.createElement("div");
+folderDialogHost.id = "folder-dialog-host";
+document.body.append(folderDialogHost);
 const ALL_FOLDERS = "__all_folders__";
 
 let settings: AppSettings = {
@@ -98,6 +103,8 @@ let settings: AppSettings = {
   thumbnailSize: 180,
   thumbnailSortKey: "name",
   thumbnailSortAscending: true,
+  hideEmptyFolders: true,
+  selectedFolder: null,
 };
 let activeFolder: string | null = null;
 let folderEntries: FolderEntry[] = [];
@@ -216,6 +223,22 @@ function isSameOrNestedPath(path: string, folder: string): boolean {
   return path === folder || path.startsWith(`${folder}/`) || path.startsWith(`${folder}\\`);
 }
 
+function shouldShowFolder(path: string): boolean {
+  if (!hideEmptyFolders) {
+    return true;
+  }
+  const entry = folderEntries.find((e) => e.path === path);
+  if (entry && entry.containsImages) {
+    return true;
+  }
+  if (activeFolder === path || expandedFolders.has(path)) {
+    return true;
+  }
+  return folderEntries.some(
+    (e) => isSameOrNestedPath(e.path, path) && (activeFolder === e.path || expandedFolders.has(e.path))
+  );
+}
+
 function folderOpenLabel(): string {
   if (navigator.userAgent.includes("Mac")) {
     return "Open in Finder";
@@ -247,9 +270,34 @@ function renderContextMenu(): void {
   }
 
   const actions = contextMenu.kind === "folder"
-    ? `<li><button data-context-action="open-folder" type="button">${folderOpenLabel()}</button></li><li><button data-context-action="copy-path" type="button">Copy folder path</button></li><li><button data-context-action="remove-folder" type="button">Remove folder</button></li>`
+    ? `<li><button data-context-action="open-folder" type="button">${folderOpenLabel()}</button></li><li><button data-context-action="create-subfolder" type="button">Create subfolder</button></li><li><button data-context-action="copy-path" type="button">Copy folder path</button></li><li><button data-context-action="remove-folder" type="button">Remove folder</button></li>`
     : `${!viewerSourcePath ? `<li><button data-context-action="open-preview" type="button">Open preview</button></li>` : ""}<li><button data-context-action="reveal-file" type="button">${folderOpenLabel()}</button></li><li><button data-context-action="copy-name" type="button">Copy filename</button></li><li><button data-context-action="copy-path" type="button">Copy complete path</button></li><li><button data-context-action="copy-image" type="button">Copy image</button></li><li><button data-context-action="remove-or-delete" type="button">Remove or delete…</button></li>`;
-  contextMenuHost.innerHTML = `<menu class="image-context-menu" style="left:${contextMenu.x}px;top:${contextMenu.y}px">${actions}</menu>`;
+
+  contextMenuHost.innerHTML = `<menu class="image-context-menu" style="visibility:hidden;position:fixed;left:${contextMenu.x}px;top:${contextMenu.y}px">${actions}</menu>`;
+
+  const menuEl = contextMenuHost.querySelector<HTMLElement>(".image-context-menu");
+  if (menuEl) {
+    const rect = menuEl.getBoundingClientRect();
+    let x = contextMenu.x;
+    let y = contextMenu.y;
+
+    if (y + rect.height > window.innerHeight) {
+      y = window.innerHeight - rect.height - 8;
+    }
+    if (y < 8) {
+      y = 8;
+    }
+    if (x + rect.width > window.innerWidth) {
+      x = window.innerWidth - rect.width - 8;
+    }
+    if (x < 8) {
+      x = 8;
+    }
+
+    menuEl.style.left = `${x}px`;
+    menuEl.style.top = `${y}px`;
+    menuEl.style.visibility = "visible";
+  }
 }
 
 function showRemovalDialog(path: string): void {
@@ -306,8 +354,127 @@ async function removePhoto(action: "catalogue" | "disk"): Promise<void> {
   render();
 }
 
+let folderCreateState: { clickedPath: string } | null = null;
+
+function showFolderCreateDialog(clickedPath: string): void {
+  folderCreateState = { clickedPath };
+  dismissContextMenu();
+  folderDialogHost.innerHTML = `
+    <div class="removal-backdrop" role="dialog" aria-modal="true" aria-labelledby="folder-dialog-title">
+      <section class="removal-dialog">
+        <p class="eyebrow">Create subfolder</p>
+        <h2 id="folder-dialog-title">New folder name</h2>
+        <p style="margin-bottom: 12px; color: #5e5b54;">Creating in: <span style="word-break: break-all; font-family: monospace;">${escapeHtml(clickedPath)}</span></p>
+        <input type="text" id="folder-name-input" class="folder-name-input" placeholder="Folder name" autofocus />
+        <div class="removal-actions">
+          <button class="secondary-button" data-folder-dialog-action="cancel" type="button">Cancel</button>
+          <button class="primary-button" data-folder-dialog-action="create" type="button">Create</button>
+        </div>
+      </section>
+    </div>`;
+
+  const input = document.getElementById("folder-name-input") as HTMLInputElement;
+  input?.focus();
+  input?.select();
+
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void submitFolderCreation();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      dismissFolderCreateDialog();
+    }
+  });
+}
+
+function dismissFolderCreateDialog(): void {
+  folderCreateState = null;
+  folderDialogHost.replaceChildren();
+}
+
+async function submitFolderCreation(): Promise<void> {
+  if (!folderCreateState) {
+    return;
+  }
+  const input = document.getElementById("folder-name-input") as HTMLInputElement;
+  const name = input?.value.trim();
+  if (!name) {
+    errorMessage = "Folder name cannot be empty.";
+    render();
+    return;
+  }
+  const clickedPath = folderCreateState.clickedPath;
+  dismissFolderCreateDialog();
+  try {
+    document.body.style.cursor = "wait";
+    const newDirPath = await invoke<string>("create_directory", { parentPath: clickedPath, name });
+    expandedFolders.add(clickedPath);
+    expandedFolders.add(newDirPath);
+    await loadFolderTrees();
+    setActiveFolder(newDirPath);
+    thumbnails = [];
+    selectedThumbnailPath = null;
+    selectedThumbnailPaths.clear();
+    selectedMetadata = null;
+    errorMessage = "";
+    render();
+    void scanSelectedFolder();
+  } catch (error) {
+    errorMessage = String(error);
+    render();
+  } finally {
+    document.body.style.cursor = "default";
+  }
+}
+
+async function moveFilesToFolder(paths: string[], targetFolderPath: string): Promise<void> {
+  const pathsToMove = paths.filter((path) => parentPath(path) !== targetFolderPath);
+  if (pathsToMove.length === 0) {
+    return;
+  }
+
+  try {
+    document.body.style.cursor = "wait";
+    await invoke<void>("move_files", { paths: pathsToMove, targetFolder: targetFolderPath });
+
+    // Clear selection
+    selectedThumbnailPath = null;
+    selectedThumbnailPaths.clear();
+    selectedMetadata = null;
+
+    // Reload files and folder tree
+    await loadFolderTrees();
+    if (activeFolder) {
+      await loadCatalogFiles(activeFolder);
+    }
+
+    errorMessage = "";
+    render();
+  } catch (error) {
+    errorMessage = String(error);
+    render();
+  } finally {
+    document.body.style.cursor = "default";
+  }
+}
+
+function setActiveFolder(folder: string | null): void {
+  activeFolder = folder;
+  void saveSelectedFolder(folder);
+}
+
+async function saveSelectedFolder(folder: string | null): Promise<void> {
+  try {
+    settings = { ...settings, selectedFolder: folder };
+    await invoke("set_selected_folder", { folder });
+  } catch (error) {
+    console.error("Could not save selected folder:", error);
+  }
+}
+
 function renderFolderTree(path: string, depth: number): string {
-  const children = folderEntries.filter((entry) => parentPath(entry.path) === path && (!hideEmptyFolders || entry.containsImages));
+  const children = folderEntries.filter((entry) => parentPath(entry.path) === path && shouldShowFolder(entry.path));
   const expanded = expandedFolders.has(path);
   const active = activeFolder === path;
   return `<div class="tree-node"><button class="folder-item ${active ? "is-selected" : ""}" type="button" data-select-folder="${escapeHtml(path)}" data-folder-path="${escapeHtml(path)}" style="padding-left:${10 + depth * 16}px"><span class="tree-toggle ${children.length ? "has-children" : ""}" data-toggle-folder="${escapeHtml(path)}">${children.length ? (expanded ? "⌄" : "›") : ""}</span><span>${escapeHtml(folderName(path))}</span></button>${expanded ? children.map((child) => renderFolderTree(child.path, depth + 1)).join("") : ""}</div>`;
@@ -462,6 +629,7 @@ async function saveDisplayPreferences(): Promise<void> {
       thumbnailSize,
       thumbnailSortKey,
       thumbnailSortAscending,
+      hideEmptyFolders,
     });
   } catch (error) {
     console.error("Could not save thumbnail display preferences:", error);
@@ -1143,7 +1311,7 @@ function moveGridSelection(delta: number): void {
 }
 
 function isFormControl(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest("input, textarea, select, button:not(.thumbnail-card)"));
+  return target instanceof Element && Boolean(target.closest("input, textarea, select, button, div[role='button']:not(.thumbnail-card)"));
 }
 
 async function navigateToImage(index: number): Promise<void> {
@@ -1370,7 +1538,7 @@ function render(): void {
                       : `<div class="thumbnail-grid" style="--thumbnail-size: ${thumbnailSize}px">
                         ${filteredThumbnails
                           .map(
-                            (thumbnail, index) => `<button class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" type="button" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" /><span>${escapeHtml(thumbnail.name)}</span></button>`,
+                            (thumbnail, index) => `<div class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" role="button" tabindex="0" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}" draggable="true"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" draggable="false" /><span>${escapeHtml(thumbnail.name)}</span></div>`,
                           )
                           .join("")}
                       </div>`
@@ -1440,7 +1608,7 @@ function render(): void {
       selectedThumbnailPaths.clear();
       selectedMetadata = null;
       errorMessage = "";
-      activeFolder = settings.watchedFolders.length ? ALL_FOLDERS : null;
+      setActiveFolder(settings.watchedFolders.length ? ALL_FOLDERS : null);
       render();
       if (activeFolder) void scanSelectedFolder();
     } catch (error) {
@@ -1450,6 +1618,7 @@ function render(): void {
   });
   document.querySelector<HTMLInputElement>("#hide-empty-folders")?.addEventListener("change", (event) => {
     hideEmptyFolders = (event.target as HTMLInputElement).checked;
+    void saveDisplayPreferences();
     render();
   });
   document.querySelector<HTMLInputElement>("#thumbnail-size")?.addEventListener("input", (event) => {
@@ -1471,7 +1640,7 @@ function render(): void {
     }
     render();
   });
-  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { closeViewer(); activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedThumbnailPaths.clear(); selectedMetadata = null; render(); void scanSelectedFolder(); }));
+  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { closeViewer(); setActiveFolder(button.dataset.selectFolder ?? null); scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedThumbnailPaths.clear(); selectedMetadata = null; render(); void scanSelectedFolder(); }));
 
   const searchInput = document.querySelector<HTMLInputElement>("#search-input");
   if (searchInput) {
@@ -1538,7 +1707,7 @@ async function chooseFolder(): Promise<void> {
 
   try {
     settings = await invoke<AppSettings>("add_watched_folder", { folder: selected });
-    activeFolder = selected;
+    setActiveFolder(selected);
     expandedFolders.add(selected);
     await loadFolderTrees();
     scanResult = null;
@@ -1559,7 +1728,7 @@ async function removeFolder(folderPath: string | null = activeFolder): Promise<v
     if (!folderPath || folderPath === ALL_FOLDERS) return;
     settings = await invoke<AppSettings>("remove_folder_from_browser", { folder: folderPath });
     if (activeFolder && isSameOrNestedPath(activeFolder, folderPath)) {
-      activeFolder = settings.watchedFolders.length ? ALL_FOLDERS : null;
+      setActiveFolder(settings.watchedFolders.length ? ALL_FOLDERS : null);
     }
     await loadFolderTrees();
     scanResult = null;
@@ -1733,6 +1902,8 @@ async function initialize(): Promise<void> {
           errorMessage = String(error);
           render();
         }
+      } else if (action === "create-subfolder" && menu.kind === "folder") {
+        showFolderCreateDialog(menu.path);
       } else if (action === "remove-folder" && menu.kind === "folder") {
         await removeFolder(menu.path);
       } else if (action === "copy-name" && menu.kind === "image") {
@@ -1760,6 +1931,18 @@ async function initialize(): Promise<void> {
         dismissRemovalDialog();
       } else if (action === "catalogue" || action === "disk") {
         void removePhoto(action);
+      }
+    });
+    folderDialogHost.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const action = target.closest<HTMLButtonElement>("[data-folder-dialog-action]")?.dataset.folderDialogAction;
+      if (action === "cancel" || target.classList.contains("removal-backdrop")) {
+        dismissFolderCreateDialog();
+      } else if (action === "create") {
+        void submitFolderCreation();
       }
     });
     viewerHost.addEventListener("click", (event) => {
@@ -1860,7 +2043,7 @@ async function initialize(): Promise<void> {
         if (contextMenu && !target.closest("#context-menu-host")) {
           dismissContextMenu();
         }
-        const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
+        const card = target.closest<HTMLElement>("[data-thumbnail-index]");
         const index = Number(card?.dataset.thumbnailIndex);
         const filtered = getFilteredThumbnails();
         const thumbnail = Number.isInteger(index) ? filtered[index] : undefined;
@@ -1930,7 +2113,7 @@ async function initialize(): Promise<void> {
       if (!(target instanceof Element)) {
         return;
       }
-      const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
+      const card = target.closest<HTMLElement>("[data-thumbnail-index]");
       const index = Number(card?.dataset.thumbnailIndex);
       const filtered = getFilteredThumbnails();
       const thumbnail = Number.isInteger(index) ? filtered[index] : undefined;
@@ -1939,6 +2122,209 @@ async function initialize(): Promise<void> {
         openViewer(thumbnail.sourcePath);
       }
     });
+
+    let activeDragIcon: HTMLElement | null = null;
+    let lastDragTarget: HTMLElement | null = null;
+
+    document.addEventListener("dragstart", (event) => {
+      void invoke("print_log", { msg: "dragstart fired" });
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const card = target.closest<HTMLElement>(".thumbnail-card");
+      if (!card) {
+        void invoke("print_log", { msg: "dragstart: card not found" });
+        return;
+      }
+      const path = card.dataset.thumbnailPath;
+      if (!path) {
+        void invoke("print_log", { msg: "dragstart: path not found on card" });
+        return;
+      }
+
+      const pathsToDrag = selectedThumbnailPaths.has(path)
+        ? Array.from(selectedThumbnailPaths)
+        : [path];
+
+      void invoke("print_log", { msg: `dragstart: starting drag of ${pathsToDrag.length} files` });
+
+      if (event.dataTransfer) {
+        event.dataTransfer.clearData();
+        event.dataTransfer.setData("text/plain", `pm-move:${JSON.stringify(pathsToDrag)}`);
+        event.dataTransfer.effectAllowed = "all";
+
+        // Create custom drag feedback element
+        const dragIcon = document.createElement("div");
+        dragIcon.className = "drag-feedback-icon";
+        dragIcon.style.position = "absolute";
+        dragIcon.style.top = "-9999px";
+        dragIcon.style.left = "-9999px";
+        dragIcon.style.background = "#dca461";
+        dragIcon.style.color = "#302113";
+        dragIcon.style.padding = "6px 12px";
+        dragIcon.style.borderRadius = "20px";
+        dragIcon.style.fontWeight = "bold";
+        dragIcon.style.fontSize = "12px";
+        dragIcon.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
+        dragIcon.style.display = "flex";
+        dragIcon.style.alignItems = "center";
+        dragIcon.style.gap = "6px";
+        dragIcon.style.zIndex = "9999";
+        
+        const count = pathsToDrag.length;
+        dragIcon.innerHTML = `
+          <span style="font-size: 14px;">🗂️</span>
+          <span>${count} photo${count === 1 ? "" : "s"}</span>
+        `;
+        
+        document.body.appendChild(dragIcon);
+        event.dataTransfer.setDragImage(dragIcon, 40, 15);
+        activeDragIcon = dragIcon;
+      }
+
+      card.classList.add("is-dragging");
+      document.body.classList.add("is-dragging-files");
+    });
+
+    document.addEventListener("dragend", (event) => {
+      void invoke("print_log", { msg: "dragend fired" });
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const card = target.closest<HTMLElement>(".thumbnail-card");
+      card?.classList.remove("is-dragging");
+      if (lastDragTarget) {
+        lastDragTarget.classList.remove("drag-over");
+        lastDragTarget = null;
+      }
+      if (activeDragIcon) {
+        activeDragIcon.remove();
+        activeDragIcon = null;
+      }
+      document.body.classList.remove("is-dragging-files");
+    });
+
+    document.addEventListener("dragenter", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const folder = target.closest<HTMLElement>("[data-folder-path]");
+      if (folder && folder.dataset.selectFolder !== ALL_FOLDERS) {
+        event.preventDefault(); // Crucial for Safari/WebKit drop
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = "move";
+        }
+      }
+    });
+
+    document.addEventListener("dragover", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const folder = target.closest<HTMLElement>("[data-folder-path]");
+      if (!folder || folder.dataset.selectFolder === ALL_FOLDERS) {
+        if (lastDragTarget) {
+          lastDragTarget.classList.remove("drag-over");
+          lastDragTarget = null;
+        }
+        return;
+      }
+
+      event.preventDefault(); // Crucial for Safari/WebKit drop
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+
+      if (lastDragTarget !== folder) {
+        if (lastDragTarget) {
+          lastDragTarget.classList.remove("drag-over");
+        }
+        folder.classList.add("drag-over");
+        lastDragTarget = folder;
+        void invoke("print_log", { msg: `dragover: hovered folder ${folder.dataset.folderPath}` });
+      }
+    });
+
+    document.addEventListener("dragleave", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const folder = target.closest<HTMLElement>("[data-folder-path]");
+      if (folder && lastDragTarget === folder) {
+        const related = (event as any).relatedTarget as HTMLElement;
+        if (!related || !folder.contains(related)) {
+          folder.classList.remove("drag-over");
+          lastDragTarget = null;
+        }
+      }
+    });
+
+    document.addEventListener("drop", async (event) => {
+      void invoke("print_log", { msg: "drop fired" });
+      if (lastDragTarget) {
+        lastDragTarget.classList.remove("drag-over");
+        lastDragTarget = null;
+      }
+      document.body.classList.remove("is-dragging-files");
+
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const folder = target.closest<HTMLElement>("[data-folder-path]");
+      if (!folder) {
+        void invoke("print_log", { msg: "drop: target folder not found" });
+        return;
+      }
+
+      const targetFolderPath = folder.dataset.folderPath;
+      if (!targetFolderPath || targetFolderPath === ALL_FOLDERS) {
+        void invoke("print_log", { msg: `drop: target folder invalid: ${targetFolderPath}` });
+        return;
+      }
+
+      event.preventDefault();
+
+      let dataStr = event.dataTransfer?.getData("text/plain");
+      if (!dataStr) {
+        dataStr = event.dataTransfer?.getData("text");
+      }
+      void invoke("print_log", { msg: `drop: raw payload received: ${dataStr}` });
+      if (!dataStr) {
+        return;
+      }
+
+      let pathsToMove: string[] = [];
+      if (dataStr.startsWith("pm-move:")) {
+        try {
+          pathsToMove = JSON.parse(dataStr.substring(8));
+        } catch (e) {
+          void invoke("print_log", { msg: `drop: json parse error on pm-move: ${e}` });
+        }
+      } else if (dataStr.startsWith("[")) {
+        try {
+          pathsToMove = JSON.parse(dataStr);
+        } catch (e) {
+          void invoke("print_log", { msg: `drop: json parse error: ${e}` });
+        }
+      } else {
+        pathsToMove = dataStr.split("\n").filter(Boolean);
+      }
+
+      void invoke("print_log", { msg: `drop: parsed paths to move: ${JSON.stringify(pathsToMove)}` });
+
+      if (pathsToMove.length === 0) {
+        return;
+      }
+
+      await moveFilesToFolder(pathsToMove, targetFolderPath);
+    });
+
     app?.addEventListener("contextmenu", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) {
@@ -1956,7 +2342,7 @@ async function initialize(): Promise<void> {
         });
         return;
       }
-      const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
+      const card = target.closest<HTMLElement>("[data-thumbnail-index]");
       const index = Number(card?.dataset.thumbnailIndex);
       const filtered = getFilteredThumbnails();
       const thumbnail = Number.isInteger(index) ? filtered[index] : undefined;
@@ -1972,6 +2358,13 @@ async function initialize(): Promise<void> {
       });
     });
     document.addEventListener("keydown", (event) => {
+      if (folderCreateState) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          dismissFolderCreateDialog();
+        }
+        return;
+      }
       if (removalPath) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -2086,12 +2479,25 @@ async function initialize(): Promise<void> {
     thumbnailSize = settings.thumbnailSize;
     thumbnailSortKey = settings.thumbnailSortKey;
     thumbnailSortAscending = settings.thumbnailSortAscending;
+    hideEmptyFolders = settings.hideEmptyFolders;
     await loadFolderTrees();
     render();
 
     if (settings.watchedFolders.length) {
-      activeFolder = ALL_FOLDERS;
+      const savedFolder = settings.selectedFolder;
+      const isValid = savedFolder && (savedFolder === ALL_FOLDERS || settings.watchedFolders.some((root) => isSameOrNestedPath(savedFolder, root)));
+      activeFolder = isValid ? savedFolder : ALL_FOLDERS;
+
       settings.watchedFolders.forEach((folder) => expandedFolders.add(folder));
+      if (activeFolder && activeFolder !== ALL_FOLDERS) {
+        let current = parentPath(activeFolder);
+        while (current && current !== activeFolder) {
+          expandedFolders.add(current);
+          const next = parentPath(current);
+          if (next === current) break;
+          current = next;
+        }
+      }
       await loadCatalogFiles(activeFolder);
       render();
       if (thumbnails.length === 0) {
