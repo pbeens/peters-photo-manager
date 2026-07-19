@@ -1,5 +1,9 @@
 # Prompt Log
 
+## 2026-07-19T00:56:00-0400 — Package v0.3.0-alpha.9 and bump version to v0.3.0-alpha.10
+
+- Prompt summary: Packaged release v0.3.0-alpha.9 by compiling the production DMG installer, copying it to exports/, documenting features in CHANGELOG.md and user-manual.md, and bumping active configuration files to v0.3.0-alpha.10.
+
 ## 2026-07-18T17:53:37-0400 — Update user manual and release-manager skill definition
 
 - Prompt summary: Update project-docs/user-manual.md version and details for RAW files, and edit the release-manager skill instruction at ~/.agents/skills/release-manager/SKILL.md to explicitly include the user manual.

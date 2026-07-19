@@ -141,6 +141,96 @@ fn extract_preview_with_exiftool(source: &Path, dest: &Path) -> Result<(), Strin
     Err("No embedded JPEG preview found in raw metadata".to_string())
 }
 
+pub fn render_raw_sensor_data(source: &Path, cache_directory: &Path) -> Result<PathBuf, String> {
+    let metadata = fs::metadata(source)
+        .map_err(|error| format!("Could not read {}: {error}", source.display()))?;
+    let modified = metadata.modified().ok();
+    
+    let mut hasher = DefaultHasher::new();
+    source.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    modified.hash(&mut hasher);
+    let hash_val = hasher.finish();
+    
+    let cache_path = cache_directory.join(format!("{:016x}.jpg", hash_val));
+    let preview_path = cache_directory.join(format!("{:016x}_preview.jpg", hash_val));
+    let marker_path = cache_directory.join(format!("{:016x}.raw_rendered", hash_val));
+    
+    if marker_path.exists() {
+        return Ok(cache_path);
+    }
+    
+    let source_str = source.to_string_lossy();
+    let preview_path_str = preview_path.to_string_lossy().into_owned();
+    
+    // Perform full RAW rendering using macOS sips tool or Windows quickraw crate
+    let render_res = if cfg!(target_os = "macos") {
+        let output = std::process::Command::new("sips")
+            .arg("-s")
+            .arg("format")
+            .arg("jpeg")
+            .arg(&*source_str)
+            .arg("--out")
+            .arg(&preview_path_str)
+            .output();
+            
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => {
+                let err_msg = String::from_utf8_lossy(&out.stderr).into_owned();
+                Err(format!("sips error: {}", err_msg))
+            }
+            Err(e) => Err(format!("Failed to execute sips: {:?}", e)),
+        }
+    } else {
+        let export_job_res = quickraw::Export::new(
+            quickraw::Input::ByFile(&source_str),
+            quickraw::Output::new(
+                quickraw::DemosaicingMethod::Linear,
+                quickraw::data::XYZ2SRGB,
+                quickraw::data::GAMMA_SRGB, // use basic sRGB gamma
+                quickraw::OutputType::Image8(preview_path_str),
+                false, // auto_crop
+                false, // auto_rotate
+            ),
+        );
+        match export_job_res {
+            Ok(export_job) => export_job.export_image(90).map_err(|e| format!("{:?}", e)),
+            Err(e) => Err(format!("{:?}", e)),
+        }
+    };
+
+    if let Err(e) = render_res {
+        let _ = fs::write(&marker_path, b"failed");
+        return Err(format!("Failed to render RAW sensor data for {}: {}", source.display(), e));
+    }
+        
+    // Open the rendered image applying EXIF orientation
+    let image = match open_with_orientation(&preview_path) {
+        Ok(img) => img,
+        Err(error) => {
+            let _ = fs::write(&marker_path, b"failed");
+            return Err(format!("Could not decode and orient rendered RAW preview for {}: {error}", source.display()));
+        }
+    };
+        
+    // Save standard thumbnail
+    if let Err(error) = image
+        .thumbnail(THUMBNAIL_EDGE, THUMBNAIL_EDGE)
+        .save_with_format(&cache_path, image::ImageFormat::Jpeg)
+    {
+        let _ = fs::write(&marker_path, b"failed");
+        return Err(format!("Could not write thumbnail for rendered RAW {}: {error}", source.display()));
+    }
+        
+    // Write marker file as success
+    if let Err(error) = fs::write(&marker_path, b"success") {
+        return Err(format!("Could not write marker file: {error}"));
+    }
+        
+    Ok(cache_path)
+}
+
 pub fn thumbnail_for(file: &ImageFile, cache_directory: &Path) -> Result<PathBuf, String> {
     let source = Path::new(&file.path);
     let metadata = fs::metadata(source)
@@ -285,3 +375,5 @@ mod tests {
         fs::remove_dir_all(root).expect("remove test folders");
     }
 }
+
+

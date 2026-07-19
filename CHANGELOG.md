@@ -4,6 +4,23 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.9 — 2026-07-18
+
+### Added
+
+- **Multi-Selection support**: Added bulk selection of grid thumbnails using `Command` / `Control` click (toggle) and `Shift` click (range select).
+- **Bulk Metadata Editing**: Supported editing star ratings and tags for all selected images in the Details panel simultaneously.
+- **High-Fidelity RAW Rendering**: Integrated linear raw sensor demosaicing via Apple's native `sips` engine on macOS and `quickraw` on Windows.
+- **Dynamic Folder Prioritization**: Background raw rendering queue dynamically prioritizes the folder currently viewed by the user.
+- **Google Maps Integration**: Added clickable links for GPS coordinates in the Details panel that open Google Maps in the default browser.
+- **Cache-Busting Previews**: Enabled automatic cache-busting using file size/modified timestamp hash values to refresh thumbnails instantly on metadata changes or external edits.
+
+### Fixed
+
+- **Autocomplete in Multi-Select**: Fixed tag autocompletion when multiple images are selected by suggesting only tags from the shared tag intersection.
+- **Erratic Lens Metadata**: Fixed erratic null-padding strings (`", "", ...`) in EXIF parser and corrected range aperture parsing (`f/5.6-6.3` is fully removed, leaving the correct lens model).
+- **RAW Progress Indicator**: Centered the pulsing progress bar indicator horizontally at the bottom of the middle panel.
+
 ## 0.3.0-alpha.8 — 2026-07-18
 
 ### Added

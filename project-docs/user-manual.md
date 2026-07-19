@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.8` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-resolution preview caching, cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
+`0.3.0-alpha.9` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
 
 ## Start the Application
 
@@ -38,6 +38,7 @@ The grid supports JPEG, PNG, and WebP files.
 - Drag the **Thumbnail size** slider to resize the grid; your setting is restored the next time the app opens.
 - Use the **Sorted by** control beneath the thumbnail grid to sort by file name, date taken, date modified, or file size. Its adjacent toggle switches between ascending and descending order. Both sort choices are restored the next time the app opens.
 - Click a thumbnail to select it and immediately show its properties and rating in the Details panel.
+- **Multi-Selection**: Hold `Command` (macOS) or `Control` (Windows) to select multiple photos in the grid. Hold `Shift` to select a range of photos. When multiple photos are selected, the Details panel displays their aggregated info (e.g. combined file size, shared format, shared tags, and uniform ratings). You can edit ratings or add/remove tags in bulk for all selected photos at once. Autocomplete suggestions will filter based on the tags already shared by all selected photos.
 - **Star Ratings**: Click any of the 5 stars in the Details panel to assign a star rating to the photo. Click the `×` button beside the stars to clear the rating (make it unrated). Ratings are written directly to the image file's metadata (`IFD0:Rating` / `XMP:Rating`), making them fully persistent and synchronized across devices.
 - **Keyboard Rating Shortcuts**: Press keys `0` through `5` on your keyboard when highlighting or viewing a photo to immediately set its rating (pressing `0` clears it).
 - **Manual Tags**: Type a tag in the Details panel and press **Enter** or comma to add it. Previously used tags are suggested as you type and can be selected with click, **Enter**, **Tab**, or the arrow keys.
@@ -68,7 +69,7 @@ The browser-style context menu is intentionally disabled.
 Select a photograph in the grid to display its properties in the right-side Details panel:
 
 - Filename, path, combined format and file size, and image dimensions are displayed from the local catalogue immediately.
-- Star rating, manual tags, and location coordinates (latitude/longitude) are also displayed. Ratings and tags are editable.
+- Star rating, manual tags, and location coordinates (latitude/longitude) are also displayed. Ratings and tags are editable. Clicking the location coordinates opens the position on Google Maps in your default browser.
 - When embedded EXIF is available, camera model/make, lens model, and capture date are also shown.
 - Photos without embedded EXIF or star ratings explicitly state that no embedded photo metadata is available.
 

@@ -108,7 +108,9 @@ let isScanning = false;
 let thumbnails: Thumbnail[] = [];
 let thumbnailProgress: ThumbnailProgress | null = null;
 let isGeneratingThumbnails = false;
+let isRawRendering = false;
 let selectedThumbnailPath: string | null = null;
+const selectedThumbnailPaths = new Set<string>();
 let thumbnailSize = 180;
 let thumbnailCacheBytes = 0;
 let hideEmptyFolders = true;
@@ -288,6 +290,7 @@ async function removePhoto(action: "catalogue" | "disk"): Promise<void> {
     await invoke<void>(action === "catalogue" ? "remove_from_catalogue" : "delete_from_disk", { path });
     thumbnails = thumbnails.filter((thumbnail) => thumbnail.sourcePath !== path);
     catalogMetadata.delete(path);
+    selectedThumbnailPaths.delete(path);
     if (selectedThumbnailPath === path) {
       selectedThumbnailPath = null;
       selectedMetadata = null;
@@ -388,10 +391,80 @@ function hasEmbeddedMetadata(metadata: ImageMetadata): boolean {
   );
 }
 
-
-
 function renderDetailsContent(): string {
-  const selectedThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
+  if (selectedThumbnailPaths.size === 0) {
+    return `<div class="details-empty"><p>Select a photograph to view details.</p></div>`;
+  }
+
+  if (selectedThumbnailPaths.size > 1) {
+    const paths = Array.from(selectedThumbnailPaths);
+    const formats = new Set<string>();
+    let totalSize = 0;
+    for (const p of paths) {
+      const meta = catalogMetadata.get(p);
+      if (meta) {
+        formats.add(meta.format);
+        totalSize += meta.fileSize;
+      }
+    }
+    const formatDisplay = formats.size === 1 ? Array.from(formats)[0] : "Multiple formats";
+
+    let sharedRating: number | undefined = undefined;
+    let uniformRating = true;
+    for (let i = 0; i < paths.length; i++) {
+      const rating = catalogMetadata.get(paths[i])?.rating;
+      if (i === 0) {
+        sharedRating = rating;
+      } else if (rating !== sharedRating) {
+        uniformRating = false;
+        break;
+      }
+    }
+    const finalRating = uniformRating ? sharedRating : undefined;
+    const sharedTags = intersectKeywords(paths);
+
+    return `<div class="details-content">
+      <div class="details-group">
+        <label>Selection</label>
+        <p>${paths.length} items selected</p>
+      </div>
+      <div class="details-group">
+        <label>Format · Size</label>
+        <p>${escapeHtml(formatDisplay)} · ${formatBytes(totalSize)}</p>
+      </div>
+
+      <div class="details-group">
+        <label>Rating</label>
+        <div class="details-rating-interactive" data-rating-container>
+          ${[1, 2, 3, 4, 5].map(val => `
+            <button class="star-button ${(finalRating && finalRating >= val) ? "is-active" : ""}" data-rate-value="${val}" type="button" title="Rate selected ${val} star${val === 1 ? '' : 's'}">★</button>
+          `).join("")}
+          ${finalRating ? `
+            <button class="clear-rating-button" id="clear-rating" type="button" title="Clear ratings">×</button>
+          ` : ""}
+        </div>
+      </div>
+
+      <div class="details-group">
+        <label>Shared Tags</label>
+        <div class="tags-container">
+          ${sharedTags.map(kw => `
+            <span class="tag-pill">
+              ${escapeHtml(kw)}
+              <button class="tag-remove-button" data-remove-tag="${escapeHtml(kw)}" type="button" title="Remove tag from all selected">&times;</button>
+            </span>
+          `).join("")}
+        </div>
+        <div class="add-tag-wrapper">
+          <input type="text" id="add-tag-input" class="add-tag-input" placeholder="Add tag to selected..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="tag-suggestions">
+          <div id="tag-suggestions" class="tag-suggestions" role="listbox" hidden></div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const path = Array.from(selectedThumbnailPaths)[0];
+  const selectedThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === path);
   if (!selectedThumbnail) {
     return `<div class="details-empty"><p>Select a photograph to view details.</p></div>`;
   }
@@ -447,15 +520,23 @@ function renderDetailsContent(): string {
       ${(metadata.locationCountry || metadata.locationState || metadata.locationCity || metadata.latitude != null) ? `
         <div class="details-group">
           <label>Location</label>
-          <p>${[
+          <p>${metadata.latitude != null && metadata.longitude != null ? `
+            <a class="location-link" href="https://www.google.com/maps/search/?api=1&query=${metadata.latitude},${metadata.longitude}" target="_blank" rel="noopener noreferrer" title="View on Google Maps">
+              ${[
+                [
+                  metadata.locationCity,
+                  metadata.locationState,
+                  metadata.locationCountry
+                ].filter(Boolean).join(", "),
+                `${metadata.latitude.toFixed(4)}, ${metadata.longitude.toFixed(4)}`
+              ].filter(Boolean).join(" · ")}
+            </a>
+          ` : [
             [
               metadata.locationCity,
               metadata.locationState,
               metadata.locationCountry
-            ].filter(Boolean).join(", "),
-            metadata.latitude != null && metadata.longitude != null
-              ? `${metadata.latitude.toFixed(4)}, ${metadata.longitude.toFixed(4)}`
-              : ""
+            ].filter(Boolean).join(", ")
           ].filter(Boolean).join(" · ")}</p>
         </div>
       ` : ""}
@@ -558,12 +639,116 @@ async function removePhotoTag(path: string, tag: string): Promise<void> {
   }
 }
 
-function wireTagAutocomplete(tagInput: HTMLInputElement, suggestionsHost: HTMLElement, path: string): void {
+async function addMultiplePhotosTag(paths: string[], tag: string): Promise<void> {
+  try {
+    // 1. Backend update
+    await invoke<void>("add_tag_to_multiple_photos", { paths, tag });
+
+    // 2. Update local state
+    for (const path of paths) {
+      const metadata = catalogMetadata.get(path);
+      if (metadata) {
+        const currentTags = metadata.keywords || [];
+        if (!currentTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+          metadata.keywords = [...currentTags, tag];
+        }
+      }
+    }
+
+    if (selectedThumbnailPath && paths.includes(selectedThumbnailPath) && selectedMetadata) {
+      selectedMetadata.keywords = catalogMetadata.get(selectedThumbnailPath)?.keywords ?? [];
+    }
+
+    addKnownTag(tag);
+
+    // 3. Reload tags list and refresh UI
+    await loadAllCatalogTags();
+    updateSelectionUI();
+    errorMessage = "";
+  } catch (error) {
+    console.error("Failed to add photo tag in bulk:", error);
+    errorMessage = String(error);
+    render();
+  }
+}
+
+async function removeMultiplePhotosTag(paths: string[], tag: string): Promise<void> {
+  try {
+    // 1. Backend update
+    await invoke<void>("remove_tag_from_multiple_photos", { paths, tag });
+
+    // 2. Update local state
+    for (const path of paths) {
+      const metadata = catalogMetadata.get(path);
+      if (metadata) {
+        const currentTags = metadata.keywords || [];
+        metadata.keywords = currentTags.filter(t => t !== tag);
+      }
+    }
+
+    if (selectedThumbnailPath && paths.includes(selectedThumbnailPath) && selectedMetadata) {
+      selectedMetadata.keywords = catalogMetadata.get(selectedThumbnailPath)?.keywords ?? [];
+    }
+
+    // 3. Reload tags list and refresh UI
+    await loadAllCatalogTags();
+    updateSelectionUI();
+    errorMessage = "";
+  } catch (error) {
+    console.error("Failed to remove photo tag in bulk:", error);
+    errorMessage = String(error);
+    render();
+  }
+}
+
+async function setMultiplePhotosRating(paths: string[], rating: number | null): Promise<void> {
+  try {
+    // 1. Backend update
+    await invoke<void>("set_rating_for_multiple_photos", { paths, rating: rating !== null ? rating : undefined });
+
+    // 2. Update local state
+    for (const path of paths) {
+      const metadata = catalogMetadata.get(path);
+      if (metadata) {
+        metadata.rating = rating !== null ? rating : undefined;
+      }
+    }
+
+    if (selectedThumbnailPath && paths.includes(selectedThumbnailPath) && selectedMetadata) {
+      selectedMetadata.rating = rating !== null ? rating : undefined;
+    }
+
+    // 3. Update the UI
+    updateSelectionUI();
+    errorMessage = "";
+  } catch (error) {
+    console.error("Failed to set photo rating in bulk:", error);
+    errorMessage = String(error);
+    render();
+  }
+}
+
+function intersectKeywords(paths: string[]): string[] {
+  if (paths.length === 0) return [];
+  const first = catalogMetadata.get(paths[0])?.keywords ?? [];
+  let common = new Set<string>(first);
+  for (let i = 1; i < paths.length; i++) {
+    const keywords = new Set<string>(catalogMetadata.get(paths[i])?.keywords ?? []);
+    common = new Set<string>([...common].filter(kw => keywords.has(kw)));
+  }
+  return Array.from(common).sort((a, b) => a.localeCompare(b));
+}
+
+function wireTagAutocomplete(tagInput: HTMLInputElement, suggestionsHost: HTMLElement, paths: string[]): void {
   let suggestions: string[] = [];
   let activeIndex = 0;
 
-  const metadata = catalogMetadata.get(path) ?? selectedMetadata;
-  const currentTags = (): string[] => metadata?.keywords ?? [];
+  const currentTags = (): string[] => {
+    if (paths.length === 1) {
+      return catalogMetadata.get(paths[0])?.keywords ?? [];
+    }
+    return intersectKeywords(paths);
+  };
 
   const hideSuggestions = (): void => {
     suggestions = [];
@@ -608,7 +793,11 @@ function wireTagAutocomplete(tagInput: HTMLInputElement, suggestionsHost: HTMLEl
     if (selectedTag) {
       tagInput.value = "";
       hideSuggestions();
-      void addPhotoTag(path, selectedTag);
+      if (paths.length === 1) {
+        void addPhotoTag(paths[0], selectedTag);
+      } else {
+        void addMultiplePhotosTag(paths, selectedTag);
+      }
     }
   };
 
@@ -667,9 +856,9 @@ function wireTagAutocomplete(tagInput: HTMLInputElement, suggestionsHost: HTMLEl
 }
 
 function updateSelectionUI(): void {
-  const path = selectedThumbnailPath;
   document.querySelectorAll<HTMLButtonElement>("[data-thumbnail-path]").forEach((card) => {
-    card.classList.toggle("is-selected", card.dataset.thumbnailPath === path);
+    const cardPath = card.dataset.thumbnailPath;
+    card.classList.toggle("is-selected", Boolean(cardPath && selectedThumbnailPaths.has(cardPath)));
   });
   const detailsPanel = document.querySelector<HTMLElement>("#details-panel");
   const detailsBody = detailsPanel?.querySelector<HTMLElement>("#details-body");
@@ -679,8 +868,9 @@ function updateSelectionUI(): void {
     // Wire up add-tag-input listener
     const tagInput = detailsBody.querySelector<HTMLInputElement>("#add-tag-input");
     const suggestionsHost = detailsBody.querySelector<HTMLElement>("#tag-suggestions");
-    if (tagInput && suggestionsHost && path) {
-      wireTagAutocomplete(tagInput, suggestionsHost, path);
+    const paths = Array.from(selectedThumbnailPaths);
+    if (tagInput && suggestionsHost && paths.length > 0) {
+      wireTagAutocomplete(tagInput, suggestionsHost, paths);
     }
 
     // Wire up tag remove buttons
@@ -689,8 +879,12 @@ function updateSelectionUI(): void {
         event.preventDefault();
         event.stopPropagation();
         const tagToRemove = btn.dataset.removeTag;
-        if (tagToRemove && path) {
-          void removePhotoTag(path, tagToRemove);
+        if (tagToRemove && paths.length > 0) {
+          if (paths.length === 1) {
+            void removePhotoTag(paths[0], tagToRemove);
+          } else {
+            void removeMultiplePhotosTag(paths, tagToRemove);
+          }
         }
       });
     });
@@ -736,11 +930,15 @@ function updateProgressStatus(): void {
 }
 
 async function selectAndLoadMetadata(path: string | null): Promise<void> {
-  if (selectedThumbnailPath === path) {
+  if (selectedThumbnailPath === path && selectedThumbnailPaths.size === (path ? 1 : 0) && (path === null || selectedThumbnailPaths.has(path))) {
     return;
   }
 
   selectedThumbnailPath = path;
+  selectedThumbnailPaths.clear();
+  if (path) {
+    selectedThumbnailPaths.add(path);
+  }
   selectedMetadata = path ? catalogMetadata.get(path) ?? null : null;
   metadataError = null;
   updateSelectionUI();
@@ -826,6 +1024,8 @@ async function navigateToImage(index: number): Promise<void> {
   if (index >= 0 && index < thumbnails.length) {
     viewerSourcePath = thumbnails[index].sourcePath;
     selectedThumbnailPath = viewerSourcePath;
+    selectedThumbnailPaths.clear();
+    selectedThumbnailPaths.add(viewerSourcePath);
     selectedMetadata = catalogMetadata.get(viewerSourcePath) ?? null;
     metadataError = null;
     updateSelectionUI();
@@ -876,7 +1076,7 @@ function renderViewer(): void {
       <button class="viewer-prev" id="viewer-prev" type="button" ${currentIndex <= 0 ? "disabled" : ""}>&lsaquo;</button>
       <figure class="viewer">
         <div class="viewer-media">
-          <img id="viewer-preview" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}" alt="${escapeHtml(thumbnail.name)}" />
+          <img id="viewer-preview" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" />
           <img id="viewer-image" src="" alt="${escapeHtml(thumbnail.name)}" />
         </div>
         <figcaption>
@@ -908,7 +1108,7 @@ async function updateViewerUI(): Promise<void> {
     return;
   }
   const path = viewerSourcePath;
-  const cachedSource = convertFileSrc(thumbnail.thumbnailPath);
+  const cachedSource = `${convertFileSrc(thumbnail.thumbnailPath)}?t=${thumbnail.lastModified}`;
   const previewImage = viewerHost.querySelector<HTMLImageElement>("#viewer-preview");
   if (previewImage) {
     previewImage.src = cachedSource;
@@ -928,7 +1128,7 @@ async function updateViewerUI(): Promise<void> {
     return;
   }
 
-  viewerImage.src = convertFileSrc(renderablePath);
+  viewerImage.src = `${convertFileSrc(renderablePath)}?t=${Date.now()}`;
   viewerImage.alt = thumbnail.name;
   viewerHost.querySelector<HTMLElement>("#viewer-name")!.textContent = thumbnail.name;
   viewerHost.querySelector<HTMLElement>("#viewer-position")!.textContent = `Original image (${currentIndex + 1} of ${thumbnails.length})`;
@@ -1015,7 +1215,7 @@ function render(): void {
                     : `<div class="thumbnail-grid" style="--thumbnail-size: ${thumbnailSize}px">
                       ${thumbnails
                         .map(
-                          (thumbnail, index) => `<button class="thumbnail-card ${selectedThumbnailPath === thumbnail.sourcePath ? "is-selected" : ""}" type="button" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" /><span>${escapeHtml(thumbnail.name)}</span></button>`,
+                          (thumbnail, index) => `<button class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" type="button" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" /><span>${escapeHtml(thumbnail.name)}</span></button>`,
                         )
                         .join("")}
                     </div>`
@@ -1023,6 +1223,7 @@ function render(): void {
         </section>
 
         ${selectedFolder ? `<footer class="grid-footer"><div class="grid-footer-summary"><div class="thumbnail-sort-control"><span class="thumbnail-count">${thumbnails.length.toLocaleString()} image${thumbnails.length === 1 ? "" : "s"} sorted by</span><select id="thumbnail-sort-key" aria-label="Sort thumbnails by"><option value="name" ${thumbnailSortKey === "name" ? "selected" : ""}>File name</option><option value="dateTaken" ${thumbnailSortKey === "dateTaken" ? "selected" : ""}>Date taken</option><option value="lastModified" ${thumbnailSortKey === "lastModified" ? "selected" : ""}>Date modified</option><option value="fileSize" ${thumbnailSortKey === "fileSize" ? "selected" : ""}>File size</option></select><button id="thumbnail-sort-direction" type="button" aria-pressed="${!thumbnailSortAscending}">${thumbnailSortAscending ? "Ascending ↑" : "Descending ↓"}</button><span class="thumbnail-cache">Cache ${formatBytes(thumbnailCacheBytes)}</span></div></div><label class="thumbnail-size-control" for="thumbnail-size"><span>Small</span><input id="thumbnail-size" type="range" min="120" max="300" step="10" value="${thumbnailSize}" /><span>Large</span><output id="thumbnail-size-value">${thumbnailSize}px</output></label></footer>` : ""}
+        ${isRawRendering ? `<div class="raw-rendering-container"><span class="raw-rendering-indicator status-pulsing">RAW rendering in progress…</span></div>` : ""}
 
         ${scanResult && scanResult.unreadableEntries > 0 ? `<p class="warning-message">${scanResult.unreadableEntries} unreadable item${scanResult.unreadableEntries === 1 ? " was" : "s were"} skipped safely.</p>` : ""}
       </section>
@@ -1081,6 +1282,7 @@ function render(): void {
       scanResult = null;
       thumbnails = [];
       selectedThumbnailPath = null;
+      selectedThumbnailPaths.clear();
       selectedMetadata = null;
       errorMessage = "";
       activeFolder = settings.watchedFolders.length ? ALL_FOLDERS : null;
@@ -1114,7 +1316,7 @@ function render(): void {
     }
     render();
   });
-  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { closeViewer(); activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedMetadata = null; render(); void scanSelectedFolder(); }));
+  document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { closeViewer(); activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedThumbnailPaths.clear(); selectedMetadata = null; render(); void scanSelectedFolder(); }));
 
   const restoredFolderList = document.querySelector<HTMLElement>(".folder-list");
   if (restoredFolderList) {
@@ -1150,6 +1352,7 @@ async function chooseFolder(): Promise<void> {
     scanResult = null;
     thumbnails = [];
     selectedThumbnailPath = null;
+    selectedThumbnailPaths.clear();
     selectedMetadata = null;
     await scanSelectedFolder();
   } catch (error) {
@@ -1171,6 +1374,7 @@ async function removeFolder(folderPath: string | null = activeFolder): Promise<v
     await loadCatalogFiles(activeFolder);
     scanProgress = null;
     selectedThumbnailPath = null;
+    selectedThumbnailPaths.clear();
     selectedMetadata = null;
     errorMessage = "";
   } catch (error) {
@@ -1217,6 +1421,9 @@ async function loadCatalogFiles(folder: string | null): Promise<void> {
       lastModified: file.lastModified,
     }));
     sortThumbnails();
+    if (folder && folder !== ALL_FOLDERS) {
+      void invoke("prioritize_raw_rendering_for_folder", { folder });
+    }
   } catch (error) {
     console.error("Failed to load catalog files:", error);
   }
@@ -1230,6 +1437,7 @@ async function scanSelectedFolder(): Promise<void> {
   const requestId = ++scanRequestId;
 
   selectedThumbnailPath = null;
+  selectedThumbnailPaths.clear();
   selectedMetadata = null;
 
   // 1. Instantly load catalogued files from SQLite and render
@@ -1414,15 +1622,23 @@ async function initialize(): Promise<void> {
         }
         
         const rateButton = target.closest<HTMLButtonElement>("[data-rate-value]");
-        if (rateButton && selectedThumbnailPath) {
+        if (rateButton && selectedThumbnailPaths.size > 0) {
           const rating = Number(rateButton.dataset.rateValue);
-          void setPhotoRating(selectedThumbnailPath, rating);
+          if (selectedThumbnailPaths.size === 1) {
+            void setPhotoRating(Array.from(selectedThumbnailPaths)[0], rating);
+          } else {
+            void setMultiplePhotosRating(Array.from(selectedThumbnailPaths), rating);
+          }
           return;
         }
 
         const clearRatingButton = target.closest<HTMLButtonElement>("#clear-rating");
-        if (clearRatingButton && selectedThumbnailPath) {
-          void setPhotoRating(selectedThumbnailPath, null);
+        if (clearRatingButton && selectedThumbnailPaths.size > 0) {
+          if (selectedThumbnailPaths.size === 1) {
+            void setPhotoRating(Array.from(selectedThumbnailPaths)[0], null);
+          } else {
+            void setMultiplePhotosRating(Array.from(selectedThumbnailPaths), null);
+          }
           return;
         }
 
@@ -1438,14 +1654,59 @@ async function initialize(): Promise<void> {
         const index = Number(card?.dataset.thumbnailIndex);
         const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
         if (thumbnail) {
-          // Tauri's WebView reliably delivers the second click even when its
-          // synthesized dblclick event is delayed or lost during a DOM update.
           if (event.detail >= 2) {
             event.preventDefault();
             event.stopPropagation();
             openViewer(thumbnail.sourcePath);
             return;
           }
+
+          const mouseEvent = event as MouseEvent;
+          const isCmdOrCtrl = mouseEvent.metaKey || mouseEvent.ctrlKey;
+          const isShift = mouseEvent.shiftKey;
+
+          if (isShift && selectedThumbnailPath) {
+            const anchorIndex = thumbnails.findIndex(t => t.sourcePath === selectedThumbnailPath);
+            if (anchorIndex !== -1) {
+              const start = Math.min(anchorIndex, index);
+              const end = Math.max(anchorIndex, index);
+              
+              if (!isCmdOrCtrl) {
+                selectedThumbnailPaths.clear();
+              }
+              
+              for (let i = start; i <= end; i++) {
+                selectedThumbnailPaths.add(thumbnails[i].sourcePath);
+              }
+              
+              selectedThumbnailPath = thumbnail.sourcePath;
+              selectedMetadata = catalogMetadata.get(thumbnail.sourcePath) ?? null;
+              metadataError = null;
+              updateSelectionUI();
+              return;
+            }
+          }
+
+          if (isCmdOrCtrl) {
+            if (selectedThumbnailPaths.has(thumbnail.sourcePath)) {
+              selectedThumbnailPaths.delete(thumbnail.sourcePath);
+              if (selectedThumbnailPath === thumbnail.sourcePath) {
+                const remaining = Array.from(selectedThumbnailPaths);
+                selectedThumbnailPath = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+                selectedMetadata = selectedThumbnailPath ? catalogMetadata.get(selectedThumbnailPath) ?? null : null;
+              }
+            } else {
+              selectedThumbnailPaths.add(thumbnail.sourcePath);
+              selectedThumbnailPath = thumbnail.sourcePath;
+              selectedMetadata = catalogMetadata.get(thumbnail.sourcePath) ?? null;
+            }
+            metadataError = null;
+            updateSelectionUI();
+            return;
+          }
+
+          selectedThumbnailPaths.clear();
+          selectedThumbnailPaths.add(thumbnail.sourcePath);
           void selectAndLoadMetadata(thumbnail.sourcePath);
         }
       } catch (error: any) {
@@ -1585,6 +1846,10 @@ async function initialize(): Promise<void> {
         await loadCatalogFiles(activeFolder);
         render();
       }
+    });
+    await listen<boolean>("raw-rendering-status", (event) => {
+      isRawRendering = event.payload;
+      render();
     });
     settings = await invoke<AppSettings>("load_settings");
     try {

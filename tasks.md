@@ -2,12 +2,13 @@
 
 ## Current Focus
 
-Phase 7 manual photo tagging and catalogue autocomplete — completed.
+Phase 8 multi-selection, high-fidelity RAW rendering, Google Maps links, and lens metadata fixes — completed and packaged in `v0.3.0-alpha.9`.
+Active focus: version `0.3.0-alpha.10` development cycle.
 
 ## Next Tasks
 
-- [x] Resolve the `clippy::type_complexity` warning in thumbnail generation so the strict Rust lint check passes.
-- [x] Implement interactive star ratings embedded directly into original image metadata.
+- [x] Package the 0.3.0-alpha.9 macOS release.
+- [ ] Manually smoke-test the 0.3.0-alpha.9 macOS release before public distribution.
 - [ ] Confirm the final project license.
 - [x] Confirm the initial Tauri application structure.
 - [x] Define Phase 0 acceptance criteria.

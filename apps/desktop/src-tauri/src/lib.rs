@@ -5,6 +5,9 @@ mod thumbnails;
 
 use scanner::{FolderEntry, ScanProgress, ScanResult};
 use settings::AppSettings;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
@@ -13,6 +16,13 @@ use thumbnails::{ThumbnailProgress, ThumbnailResult};
 use image::ImageDecoder;
 
 pub struct DbState(pub Mutex<rusqlite::Connection>);
+
+pub struct RawRenderingQueue {
+    pub pending: std::sync::Mutex<std::collections::VecDeque<String>>,
+    pub active: std::sync::atomic::AtomicBool,
+}
+
+pub struct RawRenderingState(pub std::sync::Arc<RawRenderingQueue>);
 
 #[tauri::command]
 fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
@@ -220,7 +230,11 @@ async fn scan_folder(
     db_state: tauri::State<'_, DbState>,
     folder: String,
 ) -> Result<ScanResult, String> {
-    perform_scan_and_sync(app, db_state, folder).await
+    let res = perform_scan_and_sync(app.clone(), db_state, folder).await;
+    if res.is_ok() {
+        let _ = enqueue_unrendered_raw_files(&app);
+    }
+    res
 }
 
 #[tauri::command]
@@ -247,6 +261,7 @@ async fn scan_folders(
     }
 
     files.sort_by(|left, right| left.path.cmp(&right.path));
+    let _ = enqueue_unrendered_raw_files(&app);
     Ok(ScanResult {
         files,
         scanned_entries,
@@ -441,6 +456,182 @@ fn set_photo_keywords(
     )
     .map_err(|err| err.to_string())?;
 
+    Ok(())
+}
+
+#[tauri::command]
+fn set_rating_for_multiple_photos(
+    db_state: tauri::State<'_, DbState>,
+    paths: Vec<String>,
+    rating: Option<u16>,
+) -> Result<(), String> {
+    use rayon::prelude::*;
+
+    // 1. Perform metadata updates in parallel using rayon
+    let results: Vec<Result<String, String>> = paths
+        .into_par_iter()
+        .map(|path| {
+            let photo_path = Path::new(&path);
+            if !photo_path.exists() {
+                return Err(format!("Photo file does not exist: {}", path));
+            }
+            write_metadata_rating(photo_path, rating)?;
+            Ok(path)
+        })
+        .collect();
+
+    // 2. Report any failures before updating the DB
+    for res in &results {
+        if let Err(err) = res {
+            return Err(err.clone());
+        }
+    }
+
+    // 3. Batch write database ratings inside a single SQLite transaction
+    let mut conn_guard = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    let conn = &mut *conn_guard;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    for res in results {
+        let path = res?;
+        db::update_file_rating(&tx, &path, rating).map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn add_tag_to_multiple_photos(
+    db_state: tauri::State<'_, DbState>,
+    paths: Vec<String>,
+    tag: String,
+) -> Result<(), String> {
+    use rayon::prelude::*;
+
+    // 1. Sequentially read current keywords from DB
+    let mut path_keywords = Vec::with_capacity(paths.len());
+    {
+        let conn = db_state
+            .0
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        for path in &paths {
+            if let Some(record) = db::get_file_record(&conn, path).map_err(|e| e.to_string())? {
+                path_keywords.push((path.clone(), record.keywords.unwrap_or_default()));
+            } else {
+                return Err(format!("No catalog record found for path: {}", path));
+            }
+        }
+    }
+
+    // 2. Perform metadata modifications in parallel using rayon
+    let results: Vec<Result<(String, Vec<String>), String>> = path_keywords
+        .into_par_iter()
+        .map(|(path, mut keywords)| {
+            let photo_path = Path::new(&path);
+            if !photo_path.exists() {
+                return Err(format!("Photo file does not exist: {}", path));
+            }
+
+            // Case-insensitive check
+            if !keywords.iter().any(|k| k.to_lowercase() == tag.to_lowercase()) {
+                keywords.push(tag.clone());
+                write_metadata_keywords(photo_path, &keywords)?;
+            }
+
+            Ok((path, keywords))
+        })
+        .collect();
+
+    // 3. Report any failures before updating the DB
+    for res in &results {
+        if let Err(err) = res {
+            return Err(err.clone());
+        }
+    }
+
+    // 4. Batch write database tags inside a single transaction
+    let mut conn_guard = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    let conn = &mut *conn_guard;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    for res in results {
+        let (path, keywords) = res?;
+        db::update_file_keywords(&tx, &path, Some(&keywords)).map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_tag_from_multiple_photos(
+    db_state: tauri::State<'_, DbState>,
+    paths: Vec<String>,
+    tag: String,
+) -> Result<(), String> {
+    use rayon::prelude::*;
+
+    // 1. Sequentially read current keywords from DB
+    let mut path_keywords = Vec::with_capacity(paths.len());
+    {
+        let conn = db_state
+            .0
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        for path in &paths {
+            if let Some(record) = db::get_file_record(&conn, path).map_err(|e| e.to_string())? {
+                path_keywords.push((path.clone(), record.keywords.unwrap_or_default()));
+            } else {
+                return Err(format!("No catalog record found for path: {}", path));
+            }
+        }
+    }
+
+    // 2. Perform metadata modifications in parallel using rayon
+    let results: Vec<Result<(String, Vec<String>), String>> = path_keywords
+        .into_par_iter()
+        .map(|(path, keywords)| {
+            let photo_path = Path::new(&path);
+            if !photo_path.exists() {
+                return Err(format!("Photo file does not exist: {}", path));
+            }
+
+            let updated: Vec<String> = keywords.into_iter().filter(|k| k != &tag).collect();
+            write_metadata_keywords(photo_path, &updated)?;
+
+            Ok((path, updated))
+        })
+        .collect();
+
+    // 3. Check for failures
+    for res in &results {
+        if let Err(err) = res {
+            return Err(err.clone());
+        }
+    }
+
+    // 4. Batch write database tags inside a single transaction
+    let mut conn_guard = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    let conn = &mut *conn_guard;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    for res in results {
+        let (path, keywords) = res?;
+        db::update_file_keywords(&tx, &path, Some(&keywords)).map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -760,6 +951,17 @@ fn clean_lens_model(s: &str) -> String {
             while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
                 i += 1;
             }
+            // Strip range aperture suffixes (e.g. -6.3)
+            let mut offset = 0;
+            if i < chars.len() && chars[i] == '-' {
+                offset += 1;
+            }
+            if i + offset < chars.len() && chars[i + offset].is_ascii_digit() {
+                i += offset;
+                while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                    i += 1;
+                }
+            }
         } else {
             result.push(chars[i]);
             i += 1;
@@ -772,6 +974,26 @@ fn clean_lens_model(s: &str) -> String {
         .trim_end_matches('•')
         .trim()
         .to_string()
+}
+
+fn get_ascii_field(field: &exif::Field) -> Option<String> {
+    if let exif::Value::Ascii(ref vec) = field.value {
+        for bytes in vec {
+            if let Ok(s) = std::str::from_utf8(bytes) {
+                let trimmed = s.trim().trim_matches('\0').trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    let s = field.display_value().to_string();
+    let clean = s.trim().trim_matches('"').trim();
+    if clean.is_empty() {
+        None
+    } else {
+        Some(clean.to_string())
+    }
 }
 
 fn parse_gps_coordinate(field: &exif::Field) -> Option<f64> {
@@ -899,33 +1121,28 @@ fn get_image_metadata_internal(app: Option<&AppHandle>, path: &str) -> Result<Im
 
             let make = exif
                 .get_field(exif::Tag::Make, exif::In::PRIMARY)
-                .map(|f| f.display_value().to_string());
+                .and_then(|f| get_ascii_field(f));
             let model = exif
                 .get_field(exif::Tag::Model, exif::In::PRIMARY)
-                .map(|f| f.display_value().to_string());
+                .and_then(|f| get_ascii_field(f));
             camera = match (make, model) {
                 (Some(mk), Some(md)) => {
-                    let mk_clean = mk.trim_matches('"');
-                    let md_clean = md.trim_matches('"');
-                    if md_clean.starts_with(mk_clean) {
-                        Some(md_clean.to_string())
+                    if md.starts_with(&mk) {
+                        Some(md)
                     } else {
-                        Some(format!("{} {}", mk_clean, md_clean))
+                        Some(format!("{} {}", mk, md))
                     }
                 }
-                (Some(mk), None) => Some(mk.trim_matches('"').to_string()),
-                (None, Some(md)) => Some(md.trim_matches('"').to_string()),
+                (Some(mk), None) => Some(mk),
+                (None, Some(md)) => Some(md),
                 _ => None,
             };
 
             // Parse Lens Model
             if let Some(field) = exif.get_field(exif::Tag::LensModel, exif::In::PRIMARY) {
-                let lens_raw = field
-                    .display_value()
-                    .to_string()
-                    .trim_matches('"')
-                    .to_string();
-                lens = Some(clean_lens_model(&lens_raw));
+                if let Some(lens_raw) = get_ascii_field(field) {
+                    lens = Some(clean_lens_model(&lens_raw));
+                }
             }
 
             // Parse GPS Latitude
@@ -1293,6 +1510,143 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+fn start_raw_rendering_worker(app: AppHandle, raw_queue: std::sync::Arc<RawRenderingQueue>) {
+    if raw_queue.active.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    
+    tauri::async_runtime::spawn(async move {
+        let _ = app.emit("raw-rendering-status", true);
+
+        let cache_directory = match app.path().app_cache_dir() {
+            Ok(dir) => dir.join("thumbnails"),
+            Err(_) => {
+                raw_queue.active.store(false, std::sync::atomic::Ordering::Relaxed);
+                let _ = app.emit("raw-rendering-status", false);
+                return;
+            }
+        };
+
+        loop {
+            let next_path = {
+                let mut pending = raw_queue.pending.lock().unwrap();
+                pending.pop_front()
+            };
+
+            let path = match next_path {
+                Some(p) => p,
+                None => {
+                    break;
+                }
+            };
+
+            let photo_path = Path::new(&path);
+            if photo_path.exists() {
+                let cache_dir_clone = cache_directory.clone();
+                let path_clone = photo_path.to_path_buf();
+                
+                let render_result = tauri::async_runtime::spawn_blocking(move || {
+                    thumbnails::render_raw_sensor_data(&path_clone, &cache_dir_clone)
+                }).await;
+
+                match render_result {
+                    Ok(Ok(_)) => {
+                        let _ = app.emit("catalogue-updated", ());
+                    }
+                    Ok(Err(err)) => {
+                        eprintln!("Error rendering RAW sensor data in background for {}: {}", path, err);
+                    }
+                    Err(err) => {
+                        eprintln!("Worker thread join error for RAW rendering: {}", err);
+                    }
+                }
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+
+        raw_queue.active.store(false, std::sync::atomic::Ordering::Relaxed);
+        let _ = app.emit("raw-rendering-status", false);
+    });
+}
+
+#[tauri::command]
+fn prioritize_raw_rendering_for_folder(
+    raw_state: tauri::State<'_, RawRenderingState>,
+    folder: String,
+) -> Result<(), String> {
+    let mut pending = raw_state.0.pending.lock().map_err(|_| "Failed to lock queue".to_string())?;
+    
+    let mut matching = Vec::new();
+    let mut non_matching = Vec::new();
+    
+    for path in pending.drain(..) {
+        if path.starts_with(&folder) {
+            matching.push(path);
+        } else {
+            non_matching.push(path);
+        }
+    }
+    
+    for path in matching {
+        pending.push_back(path);
+    }
+    for path in non_matching {
+        pending.push_back(path);
+    }
+    
+    Ok(())
+}
+
+fn enqueue_unrendered_raw_files(app: &AppHandle) -> Result<(), String> {
+    let db_state = app.state::<DbState>();
+    let raw_state = app.state::<RawRenderingState>();
+    let conn = db_state.0.lock().map_err(|_| "Failed to lock database".to_string())?;
+
+    let all_files = db::get_active_files(&conn, None).map_err(|e| e.to_string())?;
+    
+    let cache_directory = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Could not resolve app cache: {error}"))?
+        .join("thumbnails");
+
+    let mut unrendered = Vec::new();
+    for file in all_files {
+        let source_path = Path::new(&file.path);
+        if thumbnails::is_raw_file(source_path) {
+            let metadata = match fs::metadata(source_path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let modified = metadata.modified().ok();
+            let mut hasher = DefaultHasher::new();
+            source_path.hash(&mut hasher);
+            metadata.len().hash(&mut hasher);
+            modified.hash(&mut hasher);
+            let hash_val = hasher.finish();
+            let marker_path = cache_directory.join(format!("{:016x}.raw_rendered", hash_val));
+            
+            if !marker_path.exists() {
+                unrendered.push(file.path);
+            }
+        }
+    }
+
+    if !unrendered.is_empty() {
+        let mut pending = raw_state.0.pending.lock().unwrap();
+        for p in unrendered {
+            if !pending.contains(&p) {
+                pending.push_back(p);
+            }
+        }
+        
+        start_raw_rendering_worker(app.clone(), raw_state.0.clone());
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1321,6 +1675,14 @@ pub fn run() {
             }
 
             app.manage(DbState(Mutex::new(conn)));
+
+            let raw_queue = std::sync::Arc::new(RawRenderingQueue {
+                pending: std::sync::Mutex::new(std::collections::VecDeque::new()),
+                active: std::sync::atomic::AtomicBool::new(false),
+            });
+            app.manage(RawRenderingState(raw_queue));
+
+            let _ = enqueue_unrendered_raw_files(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1343,11 +1705,15 @@ pub fn run() {
             remove_from_catalogue,
             delete_from_disk,
             set_photo_rating,
+            set_rating_for_multiple_photos,
+            add_tag_to_multiple_photos,
+            remove_tag_from_multiple_photos,
             log_frontend_error,
             show_item_in_file_manager,
             set_photo_keywords,
             get_all_catalog_tags,
-            get_app_version
+            get_app_version,
+            prioritize_raw_rendering_for_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running Peter's Photo Manager");
@@ -1386,5 +1752,11 @@ mod tests {
 
         // Clean up
         let _ = fs::remove_file(&test_file_path);
+    }
+
+    #[test]
+    fn test_clean_lens_model() {
+        let lens = "NIKKOR Z 180-600 mm f/5.6-6.3 VR";
+        assert_eq!(clean_lens_model(lens), "NIKKOR Z 180-600 mm VR");
     }
 }
