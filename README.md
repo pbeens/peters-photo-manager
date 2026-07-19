@@ -11,6 +11,7 @@ Current version: `0.3.0-alpha.12`.
 > [!IMPORTANT]
 > * **Download Release Installers**: Production build setup files (such as `.dmg` for macOS) are available in the [exports/](exports/) directory.
 > * **Submit Issues**: If you run into bugs or have feature suggestions, please submit them on the [GitHub Issues](https://github.com/pbeens/peters-photo-manager/issues) page.
+> * **Support Development**: If you like this app or want to support its development, please consider [buying me a coffee](https://buymeacoffee.com/pbeens).
 
 The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails with a visible cache-size indicator, a persistent local SQLite catalogue, instant basic Details-panel updates, manual photo tags with autocomplete, and a cached-first viewer that loads the original image in the background. Thumbnail size and sorting preferences persist between launches. Viewer navigation updates in place with the selected thumbnail and details.
 
