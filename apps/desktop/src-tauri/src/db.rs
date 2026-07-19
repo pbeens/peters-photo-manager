@@ -348,6 +348,19 @@ pub fn update_file_keywords(
     Ok(())
 }
 
+pub fn update_file_stats(
+    conn: &Connection,
+    path: &str,
+    file_size: u64,
+    last_modified: u64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE files SET file_size = ?1, last_modified = ?2 WHERE path = ?3",
+        params![file_size as i64, last_modified as i64, path],
+    )?;
+    Ok(())
+}
+
 pub fn get_unique_keywords(conn: &Connection) -> Result<Vec<String>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT keywords FROM files WHERE keywords IS NOT NULL AND status = 'active'",

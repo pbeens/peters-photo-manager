@@ -371,6 +371,21 @@ fn log_frontend_error(msg: String) {
     let _ = std::fs::write("frontend_error.log", msg);
 }
 
+fn get_file_stats(photo_path: &Path) -> (u64, u64) {
+    let file_size = photo_path.metadata().map(|m| m.len()).unwrap_or(0);
+    let last_modified = photo_path
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| {
+            t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .ok()
+        })
+        .unwrap_or(0);
+    (file_size, last_modified)
+}
+
 #[tauri::command]
 fn set_photo_rating(
     db_state: tauri::State<'_, DbState>,
@@ -391,11 +406,17 @@ fn set_photo_rating(
 
     db::update_file_rating(&conn, &path, rating).map_err(|err| err.to_string())?;
 
+    let (file_size, last_modified) = get_file_stats(photo_path);
+    db::update_file_stats(&conn, &path, file_size, last_modified).map_err(|err| err.to_string())?;
+
     Ok(())
 }
 
 fn write_metadata_keywords(photo_path: &Path, keywords: &[String]) -> Result<(), String> {
     let mut et = exiftool_rs::ExifTool::new();
+
+    // Set CodedCharacterSet to UTF8 so reading tools decode IPTC keywords as UTF-8
+    et.set_new_value("IPTC:CodedCharacterSet", Some("UTF8"));
 
     // IPTC stores each keyword separately, while XMP expects one comma-delimited bag.
     for kw in keywords {
@@ -456,6 +477,9 @@ fn set_photo_keywords(
     )
     .map_err(|err| err.to_string())?;
 
+    let (file_size, last_modified) = get_file_stats(photo_path);
+    db::update_file_stats(&conn, &path, file_size, last_modified).map_err(|err| err.to_string())?;
+
     Ok(())
 }
 
@@ -468,7 +492,7 @@ fn set_rating_for_multiple_photos(
     use rayon::prelude::*;
 
     // 1. Perform metadata updates in parallel using rayon
-    let results: Vec<Result<String, String>> = paths
+    let results: Vec<Result<(String, u64, u64), String>> = paths
         .into_par_iter()
         .map(|path| {
             let photo_path = Path::new(&path);
@@ -476,7 +500,8 @@ fn set_rating_for_multiple_photos(
                 return Err(format!("Photo file does not exist: {}", path));
             }
             write_metadata_rating(photo_path, rating)?;
-            Ok(path)
+            let (file_size, last_modified) = get_file_stats(photo_path);
+            Ok((path, file_size, last_modified))
         })
         .collect();
 
@@ -496,8 +521,9 @@ fn set_rating_for_multiple_photos(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     for res in results {
-        let path = res?;
+        let (path, file_size, last_modified) = res?;
         db::update_file_rating(&tx, &path, rating).map_err(|e| e.to_string())?;
+        db::update_file_stats(&tx, &path, file_size, last_modified).map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -529,7 +555,7 @@ fn add_tag_to_multiple_photos(
     }
 
     // 2. Perform metadata modifications in parallel using rayon
-    let results: Vec<Result<(String, Vec<String>), String>> = path_keywords
+    let results: Vec<Result<(String, Vec<String>, u64, u64), String>> = path_keywords
         .into_par_iter()
         .map(|(path, mut keywords)| {
             let photo_path = Path::new(&path);
@@ -543,7 +569,8 @@ fn add_tag_to_multiple_photos(
                 write_metadata_keywords(photo_path, &keywords)?;
             }
 
-            Ok((path, keywords))
+            let (file_size, last_modified) = get_file_stats(photo_path);
+            Ok((path, keywords, file_size, last_modified))
         })
         .collect();
 
@@ -563,8 +590,9 @@ fn add_tag_to_multiple_photos(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     for res in results {
-        let (path, keywords) = res?;
+        let (path, keywords, file_size, last_modified) = res?;
         db::update_file_keywords(&tx, &path, Some(&keywords)).map_err(|e| e.to_string())?;
+        db::update_file_stats(&tx, &path, file_size, last_modified).map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -596,7 +624,7 @@ fn remove_tag_from_multiple_photos(
     }
 
     // 2. Perform metadata modifications in parallel using rayon
-    let results: Vec<Result<(String, Vec<String>), String>> = path_keywords
+    let results: Vec<Result<(String, Vec<String>, u64, u64), String>> = path_keywords
         .into_par_iter()
         .map(|(path, keywords)| {
             let photo_path = Path::new(&path);
@@ -604,10 +632,14 @@ fn remove_tag_from_multiple_photos(
                 return Err(format!("Photo file does not exist: {}", path));
             }
 
-            let updated: Vec<String> = keywords.into_iter().filter(|k| k != &tag).collect();
-            write_metadata_keywords(photo_path, &updated)?;
+            let original_len = keywords.len();
+            let updated: Vec<String> = keywords.into_iter().filter(|k| k.to_lowercase() != tag.to_lowercase()).collect();
+            if updated.len() != original_len {
+                write_metadata_keywords(photo_path, &updated)?;
+            }
 
-            Ok((path, updated))
+            let (file_size, last_modified) = get_file_stats(photo_path);
+            Ok((path, updated, file_size, last_modified))
         })
         .collect();
 
@@ -627,8 +659,9 @@ fn remove_tag_from_multiple_photos(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     for res in results {
-        let (path, keywords) = res?;
+        let (path, keywords, file_size, last_modified) = res?;
         db::update_file_keywords(&tx, &path, Some(&keywords)).map_err(|e| e.to_string())?;
+        db::update_file_stats(&tx, &path, file_size, last_modified).map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;

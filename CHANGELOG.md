@@ -4,6 +4,23 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.3.0-alpha.10 — 2026-07-19
+
+### Added
+
+- **Local-First Search Engine**: Introduced real-time search filtering with advanced prefixes (`tag:`, `camera:`, `lens:`, `location:`, `rating:`, `format:`) and free-text AND queries.
+- **Advanced Rating Expressions**: Supported comparison operators (e.g., `rating:>2`), ranges (`rating:3-5`), and comma-separated lists (`rating:2,3`).
+- **Interactive Search Hints**: Added a hover/focus tooltip listing search tips and query formats.
+- **Zoom Lens Focal Length Display**: Show zoom settings (e.g., `@ 300 mm`) for zoom lenses while hiding redundant metrics for prime lenses.
+
+### Fixed
+
+- **Search Results Mismatch**: Resolved index lookup misalignment in search mode for card selections, double-clicks, and context menus.
+- **Viewer Navigation**: Aligned full-screen viewer next/prev buttons, position counters, and keyboard controls to navigate within active search results.
+- **Scanner Redundancy**: Synchronized SQLite file size and modification timestamps immediately after writing metadata, preventing duplicate rescans and RAW rendering loops.
+- **Mojibake UTF-8 Glitches**: Set `IPTC:CodedCharacterSet` to UTF-8 to prevent string corruption (e.g., `Annie's Restaurant` becoming corrupted on write).
+- **Tag Removal**: Re-wired tag remove buttons to a global click listener using event delegation, ensuring they remain clickable after DOM rebuilds.
+
 ## 0.3.0-alpha.9 — 2026-07-18
 
 ### Added

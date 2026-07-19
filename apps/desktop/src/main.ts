@@ -109,6 +109,7 @@ let thumbnails: Thumbnail[] = [];
 let thumbnailProgress: ThumbnailProgress | null = null;
 let isGeneratingThumbnails = false;
 let isRawRendering = false;
+let searchQuery = "";
 let selectedThumbnailPath: string | null = null;
 const selectedThumbnailPaths = new Set<string>();
 let thumbnailSize = 180;
@@ -319,6 +320,119 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function matchRatingFilter(actualRating: number, val: string): boolean {
+  val = val.trim();
+  
+  // 1. Check for range, e.g. "3-5" or "3to5"
+  const rangeMatch = val.match(/^(\d)\s*(?:-|to)\s*(\d)$/i);
+  if (rangeMatch) {
+    const min = parseInt(rangeMatch[1], 10);
+    const max = parseInt(rangeMatch[2], 10);
+    return actualRating >= min && actualRating <= max;
+  }
+  
+  // 2. Check for comma-separated list, e.g. "2,3" or "2,3,4"
+  if (val.includes(",")) {
+    const list = val.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    return list.includes(actualRating);
+  }
+  
+  // 3. Check for comparison operators, e.g. ">=3", ">2", "<=4", "<5"
+  const compMatch = val.match(/^([><]=?)\s*(\d)$/);
+  if (compMatch) {
+    const op = compMatch[1];
+    const target = parseInt(compMatch[2], 10);
+    switch (op) {
+      case ">": return actualRating > target;
+      case ">=": return actualRating >= target;
+      case "<": return actualRating < target;
+      case "<=": return actualRating <= target;
+    }
+  }
+  
+  // 4. Fallback: single number
+  const single = parseInt(val, 10);
+  if (!isNaN(single)) {
+    return actualRating === single;
+  }
+  
+  return false;
+}
+
+function filterThumbnails(list: Thumbnail[], query: string): Thumbnail[] {
+  if (!query.trim()) {
+    return list;
+  }
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return list.filter((item) => {
+    const meta = catalogMetadata.get(item.sourcePath);
+    return tokens.every((token) => {
+      if (token.includes(":")) {
+        const colonIndex = token.indexOf(":");
+        const key = token.slice(0, colonIndex);
+        const val = token.slice(colonIndex + 1);
+        if (!val) {
+          return true;
+        }
+        switch (key) {
+          case "tag":
+          case "keyword":
+            if (!meta || !meta.keywords) return false;
+            return meta.keywords.some((kw) => kw.toLowerCase().includes(val));
+          case "camera":
+            if (!meta || !meta.camera) return false;
+            return meta.camera.toLowerCase().includes(val);
+          case "lens":
+            if (!meta || !meta.lens) return false;
+            return meta.lens.toLowerCase().includes(val);
+          case "location":
+            if (!meta) return false;
+            const city = meta.locationCity ? meta.locationCity.toLowerCase() : "";
+            const state = meta.locationState ? meta.locationState.toLowerCase() : "";
+            const country = meta.locationCountry ? meta.locationCountry.toLowerCase() : "";
+            return city.includes(val) || state.includes(val) || country.includes(val);
+          case "rating":
+            const actualRating = meta && meta.rating != null ? meta.rating : 0;
+            return matchRatingFilter(actualRating, val);
+          case "format":
+            const formatStr = (meta && meta.format ? meta.format : item.name.split(".").pop() || "").toLowerCase();
+            if (val === "raw") {
+              return isRawFormat(formatStr);
+            }
+            return formatStr.includes(val);
+          default:
+            break;
+        }
+      }
+      const nameMatch = item.name.toLowerCase().includes(token);
+      const formatStr = (meta && meta.format ? meta.format : item.name.split(".").pop() || "").toLowerCase();
+      const formatMatch = formatStr.includes(token);
+      const kwMatch = meta && meta.keywords 
+        ? meta.keywords.some((kw) => kw.toLowerCase().includes(token)) 
+        : false;
+      const cameraMatch = meta && meta.camera 
+        ? meta.camera.toLowerCase().includes(token) 
+        : false;
+      const lensMatch = meta && meta.lens 
+        ? meta.lens.toLowerCase().includes(token) 
+        : false;
+      const locationMatch = meta 
+        ? ((meta.locationCity || "") + " " + (meta.locationState || "") + " " + (meta.locationCountry || "")).toLowerCase().includes(token)
+        : false;
+      return nameMatch || formatMatch || kwMatch || cameraMatch || lensMatch || locationMatch;
+    });
+  });
+}
+
+function isRawFormat(format: string): boolean {
+  const rawExtensions = ["nef", "cr2", "arw", "dng", "orf", "rw2", "pef", "raf"];
+  return rawExtensions.includes(format.toLowerCase());
+}
+
+function getFilteredThumbnails(): Thumbnail[] {
+  return filterThumbnails(thumbnails, searchQuery);
+}
+
 function sortThumbnails(): void {
   const direction = thumbnailSortAscending ? 1 : -1;
   thumbnails.sort((left, right) => {
@@ -389,6 +503,27 @@ function hasEmbeddedMetadata(metadata: ImageMetadata): boolean {
       || metadata.rating != null
       || metadata.keywords?.length,
   );
+}
+
+function shouldShowFocalLength(lens: string, focalLength: string): boolean {
+  const normLens = lens.toLowerCase().replace(/\s+/g, "");
+  const normFocal = focalLength.toLowerCase().replace(/\s+/g, "");
+  
+  const focalNumbers = normFocal.match(/\d+(\.\d+)?/g);
+  if (!focalNumbers) return true;
+  
+  const focalVal = focalNumbers[0];
+  const isZoom = /\d+-\d+/.test(normLens);
+  
+  if (isZoom) {
+    return true;
+  }
+  
+  if (normLens.includes(focalVal)) {
+    return false;
+  }
+  
+  return true;
 }
 
 function renderDetailsContent(): string {
@@ -514,7 +649,13 @@ function renderDetailsContent(): string {
       ${(metadata.lens || metadata.focalLength) ? `
         <div class="details-group">
           <label>Lens</label>
-          <p>${escapeHtml((metadata.lens || metadata.focalLength) ?? "")}</p>
+          <p>${escapeHtml(
+            metadata.lens && metadata.focalLength
+              ? (shouldShowFocalLength(metadata.lens, metadata.focalLength)
+                  ? `${metadata.lens} @ ${metadata.focalLength}`
+                  : metadata.lens)
+              : (metadata.lens || metadata.focalLength || "")
+          )}</p>
         </div>
       ` : ""}
       ${(metadata.locationCountry || metadata.locationState || metadata.locationCity || metadata.latitude != null) ? `
@@ -872,22 +1013,6 @@ function updateSelectionUI(): void {
     if (tagInput && suggestionsHost && paths.length > 0) {
       wireTagAutocomplete(tagInput, suggestionsHost, paths);
     }
-
-    // Wire up tag remove buttons
-    detailsBody.querySelectorAll<HTMLButtonElement>("[data-remove-tag]").forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const tagToRemove = btn.dataset.removeTag;
-        if (tagToRemove && paths.length > 0) {
-          if (paths.length === 1) {
-            void removePhotoTag(paths[0], tagToRemove);
-          } else {
-            void removeMultiplePhotosTag(paths, tagToRemove);
-          }
-        }
-      });
-    });
   }
 }
 
@@ -995,15 +1120,16 @@ function gridColumnCount(): number {
 }
 
 function moveGridSelection(delta: number): void {
-  if (!thumbnails.length) {
+  const filtered = getFilteredThumbnails();
+  if (!filtered.length) {
     return;
   }
 
-  const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
+  const currentIndex = filtered.findIndex((thumbnail) => thumbnail.sourcePath === selectedThumbnailPath);
   const nextIndex = currentIndex < 0
     ? 0
-    : Math.max(0, Math.min(thumbnails.length - 1, currentIndex + delta));
-  const thumbnail = thumbnails[nextIndex];
+    : Math.max(0, Math.min(filtered.length - 1, currentIndex + delta));
+  const thumbnail = filtered[nextIndex];
   if (!thumbnail) {
     return;
   }
@@ -1021,8 +1147,9 @@ function isFormControl(target: EventTarget | null): boolean {
 }
 
 async function navigateToImage(index: number): Promise<void> {
-  if (index >= 0 && index < thumbnails.length) {
-    viewerSourcePath = thumbnails[index].sourcePath;
+  const filtered = getFilteredThumbnails();
+  if (index >= 0 && index < filtered.length) {
+    viewerSourcePath = filtered[index].sourcePath;
     selectedThumbnailPath = viewerSourcePath;
     selectedThumbnailPaths.clear();
     selectedThumbnailPaths.add(viewerSourcePath);
@@ -1060,10 +1187,11 @@ function closeViewer(): void {
 }
 
 function renderViewer(): void {
+  const filtered = getFilteredThumbnails();
   const currentIndex = viewerSourcePath
-    ? thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath)
+    ? filtered.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath)
     : -1;
-  const thumbnail = currentIndex >= 0 ? thumbnails[currentIndex] : undefined;
+  const thumbnail = currentIndex >= 0 ? filtered[currentIndex] : undefined;
 
   if (!viewerSourcePath || !thumbnail) {
     viewerHost.replaceChildren();
@@ -1081,11 +1209,11 @@ function renderViewer(): void {
         </div>
         <figcaption>
           <span id="viewer-name">${escapeHtml(thumbnail.name)}</span>
-          <span id="viewer-position">Original image (${currentIndex + 1} of ${thumbnails.length})</span>
+          <span id="viewer-position">Original image (${currentIndex + 1} of ${filtered.length})</span>
           <span id="viewer-load-state">Loading original image…</span>
         </figcaption>
       </figure>
-      <button class="viewer-next" id="viewer-next" type="button" ${currentIndex >= thumbnails.length - 1 ? "disabled" : ""}>&rsaquo;</button>
+      <button class="viewer-next" id="viewer-next" type="button" ${currentIndex >= filtered.length - 1 ? "disabled" : ""}>&rsaquo;</button>
     </div>`;
 }
 
@@ -1102,8 +1230,9 @@ async function updateViewerUI(): Promise<void> {
     return;
   }
 
-  const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
-  const thumbnail = thumbnails[currentIndex];
+  const filtered = getFilteredThumbnails();
+  const currentIndex = filtered.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
+  const thumbnail = filtered[currentIndex];
   if (!thumbnail) {
     return;
   }
@@ -1131,12 +1260,12 @@ async function updateViewerUI(): Promise<void> {
   viewerImage.src = `${convertFileSrc(renderablePath)}?t=${Date.now()}`;
   viewerImage.alt = thumbnail.name;
   viewerHost.querySelector<HTMLElement>("#viewer-name")!.textContent = thumbnail.name;
-  viewerHost.querySelector<HTMLElement>("#viewer-position")!.textContent = `Original image (${currentIndex + 1} of ${thumbnails.length})`;
+  viewerHost.querySelector<HTMLElement>("#viewer-position")!.textContent = `Original image (${currentIndex + 1} of ${filtered.length})`;
   viewerHost.querySelector<HTMLElement>("#viewer-load-state")!.textContent = "Loading original image…";
   const previousButton = viewerHost.querySelector<HTMLButtonElement>("#viewer-prev");
   const nextButton = viewerHost.querySelector<HTMLButtonElement>("#viewer-next");
   if (previousButton) previousButton.disabled = currentIndex <= 0;
-  if (nextButton) nextButton.disabled = currentIndex >= thumbnails.length - 1;
+  if (nextButton) nextButton.disabled = currentIndex >= filtered.length - 1;
 
   const markOriginalLoaded = () => {
     if (viewerSourcePath === path && viewerImage.dataset.sourcePath === path) {
@@ -1160,6 +1289,11 @@ function render(): void {
     return;
   }
 
+  const activeEl = document.activeElement;
+  const isSearchFocused = activeEl && activeEl.id === "search-input";
+  const selectionStart = isSearchFocused ? (activeEl as HTMLInputElement).selectionStart : null;
+  const selectionEnd = isSearchFocused ? (activeEl as HTMLInputElement).selectionEnd : null;
+
   const folderList = document.querySelector<HTMLElement>(".folder-list");
   const filePanel = document.querySelector<HTMLElement>(".file-panel");
   const savedFolderScroll = {
@@ -1175,6 +1309,7 @@ function render(): void {
   const isAllFolders = selectedFolder === ALL_FOLDERS;
   const files = scanResult?.files ?? [];
   const topLevelFoldersExpanded = settings.watchedFolders.some((folder) => expandedFolders.has(folder));
+  const filteredThumbnails = getFilteredThumbnails();
 
   app.innerHTML = `
     <section class="shell">
@@ -1198,6 +1333,24 @@ function render(): void {
             <p class="eyebrow">Thumbnail grid</p>
             <p class="path path-heading">${isAllFolders ? "All listed folders" : selectedFolder ? escapeHtml(selectedFolder) : "Select a folder to scan for JPEG, PNG, and WebP images."}</p>
           </div>
+          ${selectedFolder ? `
+            <div class="search-box">
+              <input id="search-input" type="search" placeholder="Search by tag, camera, lens, rating..." value="${escapeHtml(searchQuery)}" aria-label="Search photographs" />
+              ${searchQuery ? `<button class="search-clear" id="search-clear" type="button" title="Clear search">×</button>` : ""}
+              <div class="search-tooltip" role="tooltip">
+                <div class="search-tooltip-header">Search Hints</div>
+                <ul class="search-tooltip-list">
+                  <li><strong>tag:keyword</strong> (e.g. tag:nature)</li>
+                  <li><strong>camera:model</strong> (e.g. camera:nikon)</li>
+                  <li><strong>lens:model</strong> (e.g. lens:180)</li>
+                  <li><strong>location:place</strong> (e.g. location:city)</li>
+                  <li><strong>rating:expr</strong> (e.g. rating:5, rating:>2, rating:3-5, rating:2,3)</li>
+                  <li><strong>format:ext</strong> (e.g. format:raw or format:jpeg)</li>
+                  <li>Multiple words will combine with <strong>AND</strong></li>
+                </ul>
+              </div>
+            </div>
+          ` : ""}
         </header>
 
         ${errorMessage ? `<p class="error-message" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
@@ -1212,17 +1365,19 @@ function render(): void {
                   ? `<div class="empty-state"><h3>No supported images found</h3><p>Try another folder, or add JPEG, PNG, or WebP files to this folder.</p></div>`
                   : isGeneratingThumbnails && thumbnails.length === 0
                     ? `<div class="empty-state"><h3>Preparing thumbnails…</h3><p>Images are processed in the background. You can still change or remove the selected folder.</p></div>`
-                    : `<div class="thumbnail-grid" style="--thumbnail-size: ${thumbnailSize}px">
-                      ${thumbnails
-                        .map(
-                          (thumbnail, index) => `<button class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" type="button" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" /><span>${escapeHtml(thumbnail.name)}</span></button>`,
-                        )
-                        .join("")}
-                    </div>`
+                    : filteredThumbnails.length === 0
+                      ? `<div class="empty-state"><h3>No matching images found</h3><p>Try adjusting your search query or advanced filter tags.</p></div>`
+                      : `<div class="thumbnail-grid" style="--thumbnail-size: ${thumbnailSize}px">
+                        ${filteredThumbnails
+                          .map(
+                            (thumbnail, index) => `<button class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" type="button" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" /><span>${escapeHtml(thumbnail.name)}</span></button>`,
+                          )
+                          .join("")}
+                      </div>`
           }
         </section>
 
-        ${selectedFolder ? `<footer class="grid-footer"><div class="grid-footer-summary"><div class="thumbnail-sort-control"><span class="thumbnail-count">${thumbnails.length.toLocaleString()} image${thumbnails.length === 1 ? "" : "s"} sorted by</span><select id="thumbnail-sort-key" aria-label="Sort thumbnails by"><option value="name" ${thumbnailSortKey === "name" ? "selected" : ""}>File name</option><option value="dateTaken" ${thumbnailSortKey === "dateTaken" ? "selected" : ""}>Date taken</option><option value="lastModified" ${thumbnailSortKey === "lastModified" ? "selected" : ""}>Date modified</option><option value="fileSize" ${thumbnailSortKey === "fileSize" ? "selected" : ""}>File size</option></select><button id="thumbnail-sort-direction" type="button" aria-pressed="${!thumbnailSortAscending}">${thumbnailSortAscending ? "Ascending ↑" : "Descending ↓"}</button><span class="thumbnail-cache">Cache ${formatBytes(thumbnailCacheBytes)}</span></div></div><label class="thumbnail-size-control" for="thumbnail-size"><span>Small</span><input id="thumbnail-size" type="range" min="120" max="300" step="10" value="${thumbnailSize}" /><span>Large</span><output id="thumbnail-size-value">${thumbnailSize}px</output></label></footer>` : ""}
+        ${selectedFolder ? `<footer class="grid-footer"><div class="grid-footer-summary"><div class="thumbnail-sort-control"><span class="thumbnail-count">${searchQuery.trim() ? `${filteredThumbnails.length.toLocaleString()} of ${thumbnails.length.toLocaleString()} image${thumbnails.length === 1 ? "" : "s"} found` : `${thumbnails.length.toLocaleString()} image${thumbnails.length === 1 ? "" : "s"}`} sorted by</span><select id="thumbnail-sort-key" aria-label="Sort thumbnails by"><option value="name" ${thumbnailSortKey === "name" ? "selected" : ""}>File name</option><option value="dateTaken" ${thumbnailSortKey === "dateTaken" ? "selected" : ""}>Date taken</option><option value="lastModified" ${thumbnailSortKey === "lastModified" ? "selected" : ""}>Date modified</option><option value="fileSize" ${thumbnailSortKey === "fileSize" ? "selected" : ""}>File size</option></select><button id="thumbnail-sort-direction" type="button" aria-pressed="${!thumbnailSortAscending}">${thumbnailSortAscending ? "Ascending ↑" : "Descending ↓"}</button><span class="thumbnail-cache">Cache ${formatBytes(thumbnailCacheBytes)}</span></div></div><label class="thumbnail-size-control" for="thumbnail-size"><span>Small</span><input id="thumbnail-size" type="range" min="120" max="300" step="10" value="${thumbnailSize}" /><span>Large</span><output id="thumbnail-size-value">${thumbnailSize}px</output></label></footer>` : ""}
         ${isRawRendering ? `<div class="raw-rendering-container"><span class="raw-rendering-indicator status-pulsing">RAW rendering in progress…</span></div>` : ""}
 
         ${scanResult && scanResult.unreadableEntries > 0 ? `<p class="warning-message">${scanResult.unreadableEntries} unreadable item${scanResult.unreadableEntries === 1 ? " was" : "s were"} skipped safely.</p>` : ""}
@@ -1317,6 +1472,43 @@ function render(): void {
     render();
   });
   document.querySelectorAll<HTMLButtonElement>("[data-select-folder]").forEach((button) => button.addEventListener("click", () => { closeViewer(); activeFolder = button.dataset.selectFolder ?? null; scanResult = null; thumbnails = []; selectedThumbnailPath = null; selectedThumbnailPaths.clear(); selectedMetadata = null; render(); void scanSelectedFolder(); }));
+
+  const searchInput = document.querySelector<HTMLInputElement>("#search-input");
+  if (searchInput) {
+    searchInput.addEventListener("input", (event) => {
+      searchQuery = (event.target as HTMLInputElement).value;
+      render();
+    });
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        searchQuery = "";
+        render();
+      }
+    });
+  }
+
+  document.querySelector("#search-clear")?.addEventListener("click", () => {
+    searchQuery = "";
+    render();
+  });
+
+  if (isSearchFocused) {
+    const searchInput = document.querySelector<HTMLInputElement>("#search-input");
+    if (searchInput) {
+      searchInput.focus();
+      if (selectionStart !== null && selectionEnd !== null) {
+        searchInput.setSelectionRange(selectionStart, selectionEnd);
+      }
+    }
+  }
+  // Wire up details panel autocomplete if input exists in DOM after rendering
+  const tagInput = document.querySelector<HTMLInputElement>("#add-tag-input");
+  const suggestionsHost = document.querySelector<HTMLElement>("#tag-suggestions");
+  const paths = Array.from(selectedThumbnailPaths);
+  if (tagInput && suggestionsHost && paths.length > 0) {
+    wireTagAutocomplete(tagInput, suggestionsHost, paths);
+  }
 
   const restoredFolderList = document.querySelector<HTMLElement>(".folder-list");
   if (restoredFolderList) {
@@ -1580,12 +1772,14 @@ async function initialize(): Promise<void> {
         return;
       }
       if (target.closest("#viewer-prev")) {
-        const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
+        const filtered = getFilteredThumbnails();
+        const currentIndex = filtered.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
         void navigateToImage(currentIndex - 1);
         return;
       }
       if (target.closest("#viewer-next")) {
-        const currentIndex = thumbnails.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
+        const filtered = getFilteredThumbnails();
+        const currentIndex = filtered.findIndex((thumbnail) => thumbnail.sourcePath === viewerSourcePath);
         void navigateToImage(currentIndex + 1);
         return;
       }
@@ -1642,6 +1836,22 @@ async function initialize(): Promise<void> {
           return;
         }
 
+        const removeTagButton = target.closest<HTMLButtonElement>("[data-remove-tag]");
+        if (removeTagButton && selectedThumbnailPaths.size > 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          const tagToRemove = removeTagButton.dataset.removeTag;
+          const paths = Array.from(selectedThumbnailPaths);
+          if (tagToRemove) {
+            if (paths.length === 1) {
+              void removePhotoTag(paths[0], tagToRemove);
+            } else {
+              void removeMultiplePhotosTag(paths, tagToRemove);
+            }
+          }
+          return;
+        }
+
         if (target.closest("#folder-options-button")) {
           sidebarMenuOpen = !sidebarMenuOpen;
           render();
@@ -1652,7 +1862,8 @@ async function initialize(): Promise<void> {
         }
         const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
         const index = Number(card?.dataset.thumbnailIndex);
-        const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
+        const filtered = getFilteredThumbnails();
+        const thumbnail = Number.isInteger(index) ? filtered[index] : undefined;
         if (thumbnail) {
           if (event.detail >= 2) {
             event.preventDefault();
@@ -1666,7 +1877,7 @@ async function initialize(): Promise<void> {
           const isShift = mouseEvent.shiftKey;
 
           if (isShift && selectedThumbnailPath) {
-            const anchorIndex = thumbnails.findIndex(t => t.sourcePath === selectedThumbnailPath);
+            const anchorIndex = filtered.findIndex(t => t.sourcePath === selectedThumbnailPath);
             if (anchorIndex !== -1) {
               const start = Math.min(anchorIndex, index);
               const end = Math.max(anchorIndex, index);
@@ -1676,7 +1887,7 @@ async function initialize(): Promise<void> {
               }
               
               for (let i = start; i <= end; i++) {
-                selectedThumbnailPaths.add(thumbnails[i].sourcePath);
+                selectedThumbnailPaths.add(filtered[i].sourcePath);
               }
               
               selectedThumbnailPath = thumbnail.sourcePath;
@@ -1721,7 +1932,8 @@ async function initialize(): Promise<void> {
       }
       const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
       const index = Number(card?.dataset.thumbnailIndex);
-      const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
+      const filtered = getFilteredThumbnails();
+      const thumbnail = Number.isInteger(index) ? filtered[index] : undefined;
       if (thumbnail) {
         event.preventDefault();
         openViewer(thumbnail.sourcePath);
@@ -1746,7 +1958,8 @@ async function initialize(): Promise<void> {
       }
       const card = target.closest<HTMLButtonElement>("[data-thumbnail-index]");
       const index = Number(card?.dataset.thumbnailIndex);
-      const thumbnail = Number.isInteger(index) ? thumbnails[index] : undefined;
+      const filtered = getFilteredThumbnails();
+      const thumbnail = Number.isInteger(index) ? filtered[index] : undefined;
       if (!thumbnail) {
         return;
       }
@@ -1794,14 +2007,16 @@ async function initialize(): Promise<void> {
           closeViewer();
         } else if (event.key === "ArrowLeft") {
           event.preventDefault();
-          const currentIndex = thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath);
+          const filtered = getFilteredThumbnails();
+          const currentIndex = filtered.findIndex((t) => t.sourcePath === viewerSourcePath);
           if (currentIndex > 0) {
             void navigateToImage(currentIndex - 1);
           }
         } else if (event.key === "ArrowRight") {
           event.preventDefault();
-          const currentIndex = thumbnails.findIndex((t) => t.sourcePath === viewerSourcePath);
-          if (currentIndex >= 0 && currentIndex < thumbnails.length - 1) {
+          const filtered = getFilteredThumbnails();
+          const currentIndex = filtered.findIndex((t) => t.sourcePath === viewerSourcePath);
+          if (currentIndex >= 0 && currentIndex < filtered.length - 1) {
             void navigateToImage(currentIndex + 1);
           }
         }

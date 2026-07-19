@@ -1,5 +1,9 @@
 # Prompt Log
 
+## 2026-07-19T03:15:00-0400 — Implement search engine for alpha 10
+
+- Prompt summary: Bumped configuration versions to v0.3.0-alpha.10, styled search input header elements, implemented real-time filtering with advanced key-value tokens (tag, camera, lens, location, rating, format), updated keyboard/viewer navigation to respect filtered results, and documented usage instructions in user-manual.md.
+
 ## 2026-07-19T00:56:00-0400 — Package v0.3.0-alpha.9 and bump version to v0.3.0-alpha.10
 
 - Prompt summary: Packaged release v0.3.0-alpha.9 by compiling the production DMG installer, copying it to exports/, documenting features in CHANGELOG.md and user-manual.md, and bumping active configuration files to v0.3.0-alpha.10.

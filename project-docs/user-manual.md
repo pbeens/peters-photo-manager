@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.3.0-alpha.9` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
+`0.3.0-alpha.10` is an early testing build for macOS. It supports local folder browsing, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
 
 ## Start the Application
 
@@ -48,6 +48,20 @@ The grid supports JPEG, PNG, and WebP files.
 - Browse through photographs sequentially using the **Left/Right Arrow** keys on your keyboard, or the `<` and `>` button overlays on the screen.
 
 The bottom panel shows the image total, current thumbnail-cache size, saved sort controls, and the saved thumbnail-size control.
+
+## Search Photos
+
+The search engine at the top right of the thumbnail grid filters photos in real-time. Typing search terms filters the photos currently visible (either in the selected folder or in All Folders).
+
+- **Free-Text Search**: Type any words to match any metadata field (filename, format, camera, lens, tags, or location). Multiple terms are combined with **AND** logic (e.g., `Nikon puffin`).
+- **Advanced Filter Keys**: Restrict searches to specific fields using colon-separated key-value prefixes:
+  - `tag:value` / `keyword:value` (e.g., `tag:nature`) — matches keywords/tags.
+  - `camera:value` (e.g., `camera:Zf`) — matches camera model.
+  - `lens:value` (e.g., `lens:180`) — matches lens model.
+  - `location:value` (e.g., `location:Elliston`) — matches city, state, or country.
+  - `rating:expression` (e.g. `rating:5`, comparison `rating:>2`, range `rating:3-5` or `rating:3to5`, list `rating:2,3`, or `rating:0` for unrated) — matches star rating expressions.
+  - `format:value` (e.g., `format:raw` or `format:jpeg`) — matches file format or RAW extensions.
+- You can combine multiple filter keys and free-text keywords (e.g., `camera:Nikon tag:nature puffin`). Press **Escape** or click the clear (`×`) button to reset the search.
 
 ## Context Menu
 

@@ -254,3 +254,107 @@ h1 { margin-bottom: 0; font-size: 2rem; } h2 { margin-bottom: 5px; font-size: cl
   color: #c9a873;
   text-decoration: underline;
 }
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 340px;
+}
+
+.search-box input[type="search"] {
+  width: 100%;
+  height: 32px;
+  padding: 6px 32px 6px 12px;
+  border: 1px solid #c8c1b3;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: #20201d;
+  font: inherit;
+  font-size: 0.82rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-box input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-box input[type="search"]:focus {
+  outline: none;
+  border-color: #8a5c2e;
+  box-shadow: 0 0 0 2px #e4bd86;
+}
+
+.search-box .search-clear {
+  position: absolute;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #eee5d7;
+  color: #716f67;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-box .search-clear:hover {
+  background: #dcd2bf;
+  color: #20201d;
+}
+
+.search-tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  width: 290px;
+  background: #fbf9f5;
+  border: 1px solid #c8c1b3;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  display: none;
+  pointer-events: none;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: #504e46;
+}
+
+.search-box:hover .search-tooltip,
+.search-box input[type="search"]:focus + .search-clear + .search-tooltip,
+.search-box input[type="search"]:focus ~ .search-tooltip {
+  display: block;
+}
+
+.search-tooltip-header {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #20201d;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #eee5d7;
+  padding-bottom: 4px;
+}
+
+.search-tooltip-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-tooltip-list li {
+  line-height: 1.4;
+}
+
+.search-tooltip-list strong {
+  color: #8a5c2e;
+}
