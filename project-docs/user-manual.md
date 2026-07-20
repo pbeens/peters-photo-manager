@@ -2,7 +2,10 @@
 
 ## Current Version
 
-`0.3.0-alpha.12` is an early testing build for macOS. It supports local folder browsing, subfolder creation, drag-and-drop file organization, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information.
+`0.4.0-alpha.1` is an early testing build for macOS. It supports local folder browsing, subfolder creation, drag-and-drop file organization, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information. The editor can render and save its current adjustments.
+
+> [!WARNING]
+> Editor saving is experimental and must not be trusted as the only copy of a photograph. Keep independent backups and verify every rendered output. Re-editing a saved file does not yet restore its prior slider settings, and the saved rendering can differ materially from the editor preview.
 
 ## Start the Application
 
@@ -43,6 +46,7 @@ Added folders are saved locally. Removing a folder from the sidebar removes only
 - Use the arrows beside folder names to expand or collapse their paths.
 - Right-click a folder to open it in Finder on macOS or Explorer on Windows, copy its path, or remove that exact folder from the app. Removing a nested folder excludes it from future scans while leaving its parent and sibling folders available.
 - Folder views always include images in their subfolders. Open the **••• Folder options** menu and use **Hide folders with no images** to choose whether empty folders remain visible as destinations for later drag-and-drop work.
+- The same menu includes **Hide originals**, enabled by default. It hides the editor-created `Originals` archive from the folder tree and keeps its photos out of the normal gallery; turn it off to include those archived originals again.
 
 ## Browse Thumbnails
 
@@ -59,6 +63,21 @@ The grid supports JPEG, PNG, and WebP files.
 - With the viewer closed, use the **Arrow keys** to move the grid selection and **Enter** or **Space** to open the selected image. Up and Down move by a full grid row.
 - Press **Escape** or select **×** to close the viewer.
 - Browse through photographs sequentially using the **Left/Right Arrow** keys on your keyboard, or the `<` and `>` button overlays on the screen.
+- While the viewer is open, press **E** or select the persistent **Edit** button in the lower-right corner to open the edit workspace.
+- The editor provides Light controls (brightness, exposure, contrast, highlights, shadows, whites, and blacks), Colour controls (vibrance and saturation), and Black & White conversion styles (Neutral, High contrast, Matte, and Soft). Use the **Reset** button in that section to return to colour. Open or close each group using its heading.
+- Select **•••** beside **Save** to open the editor options menu. The **Clipping indicator** is available only inside that menu. Hover over it to see its keyboard guidance. The preview uses blue shadow and red highlight masks only over clipped image pixels; it never covers the surrounding canvas or frame.
+- The same menu includes **Open saved file in Finder** on macOS or **Open saved file in Explorer** on Windows. Turn it on to reveal each completed output automatically; the preference is retained locally.
+- Before saving, choose how to retain the source: move it into an **Originals** subfolder, rename it as `filename_original.EXT`, or overwrite it. **Overwrite original** always asks for confirmation. JPEG, PNG, and WebP edits save in the same format. RAW inputs save as a rendered DNG with the same base filename (for example, `photo.nef` becomes `photo.dng`); the camera RAW is retained when either archive option is chosen.
+- Files in the editor-created **Originals** archive are retained on disk for a future restore-original feature, but are not indexed as duplicate gallery images.
+- In **Straighten**, select **Draw horizontal** or **Draw vertical**, then drag over a line in the photo that should be level or upright. The most recently drawn guide determines the rotation; no perspective warp is applied. **Remove guide** hides the reference line but retains the resulting rotation.
+- **Effects** provides a centred Vignette amount slider: negative values create a light vignette and positive values create a dark one. Vignette size controls the area it reaches into the image, while **Feather** controls how soft or hard its edge is. **Frame** provides Gallery, Film, Matte, and Polaroid preview styles; **Size** controls border thickness. Use **Reset** to remove a frame. Frames always render above the clipping indicator.
+- Double-click any adjustment slider to return it to its neutral position. Frames and vignettes are positioned within the fitted photograph, never around the editor canvas.
+- The value at the right of each adjustment is editable. Type a valid value within the slider’s range and the preview updates immediately.
+- Clicking anywhere outside an open editor options menu closes it.
+- Expanded and collapsed editor sections are remembered for the next image. When any adjustment is active, **Done** changes to **Save**. After a completed save, the editor displays **Saved** and the action returns to **Done**, so it is clear that there is no second unsaved copy of the same edit. Saving renders the preview adjustments into the output image, refreshes the catalogue, and leaves the viewer on that saved image.
+- Edit recipes are now saved locally in the catalogue and restored when reopening the same available original. A recipe is discarded automatically when the source file’s size or modification timestamp changes, preventing an edit from being applied to a different original.
+- Select **Done** to return to the viewer without rendering an output. Select **Save** to write the current edit.
+- Returning to the viewer and thumbnail grid keeps the active preview adjustments visible for that photograph. The adjustment recipe is also retained for subsequent editing while the original remains unchanged.
 
 The bottom panel shows the image total, current thumbnail-cache size, saved sort controls, and the saved thumbnail-size control.
 
@@ -118,6 +137,6 @@ If you find bugs or have feature requests, please submit them on the [GitHub Iss
 
 ## Current Limitations
 
-- The application has no albums, file moving, export, or AI features yet.
+- The application has no albums, crop tool, undo/redo, restore-original command, or AI features yet. Drag-and-drop file moves are supported from the thumbnail grid to sidebar folders.
 - Large folders may take time to scan and thumbnail on their first run; the grid, Details panel, and viewer remain available while this work runs.
 - The application has been manually tested on macOS; Windows testing is still required.

@@ -1,6 +1,6 @@
 [package]
 name = "peters-photo-manager"
-version = "0.3.0-alpha.12"
+version = "0.4.0-alpha.1"
 description = "A local-first desktop photo manager."
 authors = ["Peter Beens"]
 edition = "2021"
@@ -17,6 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1.2.67"
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }

@@ -10,6 +10,7 @@ type AppSettings = {
   thumbnailSortKey: ThumbnailSortKey;
   thumbnailSortAscending: boolean;
   hideEmptyFolders: boolean;
+  hideOriginals: boolean;
   selectedFolder: string | null;
 };
 
@@ -86,6 +87,9 @@ const app = document.querySelector<HTMLElement>("#app");
 const viewerHost = document.createElement("div");
 viewerHost.id = "viewer-host";
 document.body.append(viewerHost);
+const editorHost = document.createElement("div");
+editorHost.id = "editor-host";
+document.body.append(editorHost);
 const contextMenuHost = document.createElement("div");
 contextMenuHost.id = "context-menu-host";
 document.body.append(contextMenuHost);
@@ -104,6 +108,7 @@ let settings: AppSettings = {
   thumbnailSortKey: "name",
   thumbnailSortAscending: true,
   hideEmptyFolders: true,
+  hideOriginals: true,
   selectedFolder: null,
 };
 let activeFolder: string | null = null;
@@ -122,12 +127,14 @@ const selectedThumbnailPaths = new Set<string>();
 let thumbnailSize = 180;
 let thumbnailCacheBytes = 0;
 let hideEmptyFolders = true;
+let hideOriginals = true;
 let sidebarMenuOpen = false;
 let thumbnailSortKey: ThumbnailSortKey = "name";
 let thumbnailSortAscending = true;
 let scanRequestId = 0;
 let viewerSourcePath: string | null = null;
 let ignoreViewerBackdropClick = false;
+let editorSourcePath: string | null = null;
 let contextMenu: ContextMenu | null = null;
 let ignoreContextMenuDismiss = false;
 let removalPath: string | null = null;
@@ -157,6 +164,71 @@ type ImageMetadata = {
   rating?: number;
   keywords?: string[];
 };
+
+type EditorAdjustments = {
+  brightness: number;
+  exposure: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+  vibrance: number;
+  saturation: number;
+  vignetteAmount: number;
+  vignetteSize: number;
+  vignetteFeather: number;
+  frameSize: number;
+  blackAndWhite: "none" | "neutral" | "contrast" | "matte" | "soft";
+  frameStyle: "none" | "gallery" | "film" | "matte" | "polaroid";
+};
+
+const defaultEditorAdjustments = (): EditorAdjustments => ({
+  brightness: 0,
+  exposure: 0,
+  contrast: 0,
+  highlights: 0,
+  shadows: 0,
+  whites: 0,
+  blacks: 0,
+  vibrance: 0,
+  saturation: 0,
+  vignetteAmount: 0,
+  vignetteSize: 50,
+  vignetteFeather: 50,
+  frameSize: 0,
+  blackAndWhite: "none",
+  frameStyle: "none",
+});
+
+let editorAdjustments = defaultEditorAdjustments();
+let editorStraightenMode: "horizontal" | "vertical" | null = null;
+let editorStraightenStart: { x: number; y: number } | null = null;
+let editorHorizontalRotation: number | null = null;
+let editorVerticalRotation: number | null = null;
+let editorMenuOpen = false;
+let clippingIndicatorEnabled = false;
+let editorAltClippingPreview = false;
+let clippingCanvasSource: HTMLImageElement | null = null;
+let clippingCanvasSourcePath: string | null = null;
+let clippingCanvasObjectUrl: string | null = null;
+const editorSectionStorageKey = "peters-photo-manager.editor-section-state";
+const editorSaveOriginalStorageKey = "peters-photo-manager.editor-save-original-strategy";
+const editorRevealSavedStorageKey = "peters-photo-manager.editor-reveal-saved-file";
+const editorClippingStorageKey = "peters-photo-manager.editor-clipping-indicator";
+const editorFrameSizeStorageKey = "peters-photo-manager.editor-frame-size";
+type EditorSaveOriginalStrategy = "originals-subfolder" | "filename-original" | "overwrite";
+let editorSaveOriginalStrategy: EditorSaveOriginalStrategy = "originals-subfolder";
+let editorRevealSavedFile = false;
+let editorSavedOutputPath: string | null = null;
+let editorSaveError: string | null = null;
+let isRefreshingSavedCatalogue = false;
+let editorRecipeSaveTimer: number | null = null;
+let restoringEditorRecipe = false;
+type StoredEditRecipe = { adjustments: EditorAdjustments; rotation: number };
+type EditedImageSaveResult = { outputPath: string; archivedOriginalPath?: string };
+const editRecipeCache = new Map<string, StoredEditRecipe>();
+type EditorSliderKey = Exclude<keyof EditorAdjustments, "blackAndWhite" | "frameStyle">;
 let selectedMetadata: ImageMetadata | null = null;
 let allKnownTags: string[] = [];
 
@@ -224,6 +296,9 @@ function isSameOrNestedPath(path: string, folder: string): boolean {
 }
 
 function shouldShowFolder(path: string): boolean {
+  if (hideOriginals && folderName(path).toLocaleLowerCase() === "originals") {
+    return false;
+  }
   if (!hideEmptyFolders) {
     return true;
   }
@@ -630,6 +705,7 @@ async function saveDisplayPreferences(): Promise<void> {
       thumbnailSortKey,
       thumbnailSortAscending,
       hideEmptyFolders,
+      hideOriginals,
     });
   } catch (error) {
     console.error("Could not save thumbnail display preferences:", error);
@@ -1351,7 +1427,251 @@ function openViewer(path: string): void {
 
 function closeViewer(): void {
   viewerSourcePath = null;
+  closeEditor();
   viewerHost.replaceChildren();
+}
+
+function openEditor(): void {
+  if (!viewerSourcePath) return;
+  editorSourcePath = viewerSourcePath;
+  editorAdjustments = defaultEditorAdjustments();
+  const savedFrameSize = Number(window.localStorage.getItem(editorFrameSizeStorageKey));
+  if (Number.isFinite(savedFrameSize) && savedFrameSize >= 0 && savedFrameSize <= 100) editorAdjustments.frameSize = savedFrameSize;
+  clippingIndicatorEnabled = window.localStorage.getItem(editorClippingStorageKey) === "true";
+  editorStraightenMode = null;
+  editorStraightenStart = null;
+  editorHorizontalRotation = null;
+  editorVerticalRotation = null;
+  editorMenuOpen = false;
+  editorSavedOutputPath = null;
+  editorSaveError = null;
+  editorRevealSavedFile = window.localStorage.getItem(editorRevealSavedStorageKey) === "true";
+  restoringEditorRecipe = true;
+  const savedStrategy = window.localStorage.getItem(editorSaveOriginalStorageKey);
+  if (savedStrategy === "originals-subfolder" || savedStrategy === "filename-original" || savedStrategy === "overwrite") {
+    editorSaveOriginalStrategy = savedStrategy;
+  }
+  renderEditor();
+  void updateEditorPreview();
+  void restoreEditorRecipe(editorSourcePath);
+}
+
+function closeEditor(): void {
+  const savedOutputPath = editorSavedOutputPath;
+  if (!savedOutputPath) applyViewerEditPreview();
+  if (editorRecipeSaveTimer !== null) {
+    window.clearTimeout(editorRecipeSaveTimer);
+    editorRecipeSaveTimer = null;
+    void saveEditorRecipe();
+  }
+  editorSourcePath = null;
+  editorSavedOutputPath = null;
+  editorSaveError = null;
+  editorStraightenMode = null;
+  editorStraightenStart = null;
+  if (clippingCanvasObjectUrl) URL.revokeObjectURL(clippingCanvasObjectUrl);
+  clippingCanvasObjectUrl = null;
+  clippingCanvasSource = null;
+  clippingCanvasSourcePath = null;
+  editorHost.replaceChildren();
+  if (savedOutputPath && viewerSourcePath === savedOutputPath) {
+    renderViewer();
+    void updateViewerUI();
+  }
+}
+
+function savedFileManagerLabel(): string {
+  return navigator.userAgent.includes("Macintosh") ? "Finder" : "Explorer";
+}
+
+function editorHasEdits(): boolean {
+  const defaults = defaultEditorAdjustments();
+  return editorRotation() !== 0 || Object.entries(defaults).some(([key, value]) => {
+    const adjustment = key as keyof EditorAdjustments;
+    if (adjustment === "frameSize" && editorAdjustments.frameStyle === "none") return false;
+    return editorAdjustments[adjustment] !== value;
+  });
+}
+
+async function saveEditorImage(): Promise<void> {
+  if (!editorSourcePath || !editorHasEdits()) {
+    closeEditor();
+    return;
+  }
+  if (editorSaveOriginalStrategy === "overwrite") {
+    const approved = await ask(
+      "This will permanently replace the original photo. The original cannot be restored by Peter’s Photo Manager yet. Continue?",
+      { title: "Overwrite original?", kind: "warning", okLabel: "Overwrite", cancelLabel: "Cancel" },
+    );
+    if (!approved) return;
+  }
+  const sourcePath = editorSourcePath;
+  const sourceThumbnail = thumbnails.find((thumbnail) => thumbnail.sourcePath === sourcePath);
+  const saveButton = editorHost.querySelector<HTMLButtonElement>("#save-editor");
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving…";
+  }
+  try {
+    const result = await invoke<EditedImageSaveResult>("save_edited_image", {
+      path: sourcePath,
+      adjustments: editorAdjustments,
+      rotation: editorRotation(),
+      originalSaveStrategy: editorSaveOriginalStrategy,
+    });
+    editRecipeCache.delete(sourcePath);
+    viewerSourcePath = result.outputPath;
+    selectedThumbnailPath = result.outputPath;
+    selectedThumbnailPaths.clear();
+    selectedThumbnailPaths.add(result.outputPath);
+    if (!thumbnails.some((thumbnail) => thumbnail.sourcePath === result.outputPath)) {
+      thumbnails.push({
+        name: result.outputPath.split(/[\\/]/).pop() ?? result.outputPath,
+        sourcePath: result.outputPath,
+        thumbnailPath: sourceThumbnail?.thumbnailPath ?? "",
+        fileSize: 0,
+        lastModified: Date.now(),
+      });
+      sortThumbnails();
+    }
+    render();
+    void updateViewerUI();
+    editorSourcePath = result.outputPath;
+    editorSavedOutputPath = result.outputPath;
+    editorSaveError = null;
+    editorAdjustments = defaultEditorAdjustments();
+    editorHorizontalRotation = null;
+    editorVerticalRotation = null;
+    renderEditor();
+    void updateEditorPreview();
+    void refreshCatalogueAfterEditorSave();
+    if (editorRevealSavedFile) {
+      try {
+        await invoke<void>("show_item_in_file_manager", { path: result.outputPath });
+      } catch (revealError) {
+        console.warn("Could not reveal saved image", revealError);
+      }
+    }
+  } catch (error) {
+    console.error("Could not save edited image", error);
+    editorSaveError = `Could not save: ${String(error)}`;
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save";
+    }
+    const editState = editorHost.querySelector<HTMLElement>(".editor-header small");
+    if (editState) editState.textContent = editorSaveError;
+  }
+}
+
+async function refreshCatalogueAfterEditorSave(): Promise<void> {
+  if (isRefreshingSavedCatalogue) return;
+  isRefreshingSavedCatalogue = true;
+  try {
+    const folderToScan = activeFolder && activeFolder !== ALL_FOLDERS ? activeFolder : null;
+    if (folderToScan) {
+      await invoke<ScanResult>("scan_folder", { folder: folderToScan });
+    } else {
+      await invoke<ScanResult>("scan_folders", { folders: settings.watchedFolders });
+    }
+    await loadCatalogFiles(activeFolder);
+    selectedMetadata = viewerSourcePath ? catalogMetadata.get(viewerSourcePath) ?? null : null;
+    render();
+    void updateViewerUI();
+  } catch (error) {
+    console.warn("Could not refresh the catalogue after saving an image", error);
+  } finally {
+    isRefreshingSavedCatalogue = false;
+    isScanning = false;
+    isGeneratingThumbnails = false;
+    thumbnailProgress = null;
+    render();
+  }
+}
+
+function applyViewerEditPreview(): void {
+  if (!viewerSourcePath || viewerSourcePath !== editorSourcePath) return;
+  const filter = editorFilter();
+  const transform = `rotate(${editorRotation().toFixed(2)}deg)`;
+  viewerHost.querySelectorAll<HTMLImageElement>("#viewer-preview, #viewer-image").forEach((image) => {
+    image.style.filter = filter;
+    image.style.transform = transform;
+  });
+}
+
+function scheduleEditorRecipeSave(): void {
+  if (!editorSourcePath || restoringEditorRecipe) return;
+  if (editorRecipeSaveTimer !== null) window.clearTimeout(editorRecipeSaveTimer);
+  editorRecipeSaveTimer = window.setTimeout(() => {
+    editorRecipeSaveTimer = null;
+    void saveEditorRecipe();
+  }, 350);
+}
+
+async function saveEditorRecipe(): Promise<void> {
+  if (!editorSourcePath) return;
+  const thumbnail = getFilteredThumbnails().find((item) => item.sourcePath === editorSourcePath);
+  if (!thumbnail) return;
+  const settingsJson = JSON.stringify({ adjustments: editorAdjustments, rotation: editorRotation() });
+  const recipe: StoredEditRecipe = { adjustments: { ...editorAdjustments }, rotation: editorRotation() };
+  editRecipeCache.set(thumbnail.sourcePath, recipe);
+  applyThumbnailEditPreview(thumbnail.sourcePath, recipe);
+  try {
+    await invoke("save_edit_recipe", {
+      path: thumbnail.sourcePath,
+      fileSize: thumbnail.fileSize,
+      lastModified: thumbnail.lastModified,
+      settingsJson,
+    });
+  } catch (error) {
+    console.error("Could not save edit recipe", error);
+  }
+}
+
+async function restoreEditorRecipe(path: string): Promise<void> {
+  const thumbnail = getFilteredThumbnails().find((item) => item.sourcePath === path);
+  if (!thumbnail) {
+    restoringEditorRecipe = false;
+    return;
+  }
+  restoringEditorRecipe = true;
+  try {
+    const settingsJson = await invoke<string | null>("get_edit_recipe", {
+      path: thumbnail.sourcePath,
+      fileSize: thumbnail.fileSize,
+      lastModified: thumbnail.lastModified,
+    });
+    if (!settingsJson || editorSourcePath !== path) return;
+    const recipe = JSON.parse(settingsJson) as { adjustments?: Partial<EditorAdjustments>; rotation?: number };
+    editorAdjustments = { ...defaultEditorAdjustments(), ...recipe.adjustments };
+    if (typeof recipe.rotation === "number") editorHorizontalRotation = recipe.rotation;
+    editRecipeCache.set(path, { adjustments: { ...editorAdjustments }, rotation: editorRotation() });
+    renderEditor();
+    void updateEditorPreview();
+  } catch (error) {
+    console.error("Could not restore edit recipe", error);
+  } finally {
+    restoringEditorRecipe = false;
+  }
+}
+
+function editorSectionIsOpen(section: string): boolean {
+  try {
+    const state = JSON.parse(window.localStorage.getItem(editorSectionStorageKey) ?? "{}") as Record<string, boolean>;
+    return state[section] ?? true;
+  } catch {
+    return true;
+  }
+}
+
+function saveEditorSectionState(section: string, isOpen: boolean): void {
+  try {
+    const state = JSON.parse(window.localStorage.getItem(editorSectionStorageKey) ?? "{}") as Record<string, boolean>;
+    state[section] = isOpen;
+    window.localStorage.setItem(editorSectionStorageKey, JSON.stringify(state));
+  } catch (error) {
+    console.warn("Could not save editor section state", error);
+  }
 }
 
 function renderViewer(): void {
@@ -1375,6 +1695,7 @@ function renderViewer(): void {
           <img id="viewer-preview" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" />
           <img id="viewer-image" src="" alt="${escapeHtml(thumbnail.name)}" />
         </div>
+        <button class="viewer-edit" id="open-editor" type="button">Edit</button>
         <figcaption>
           <span id="viewer-name">${escapeHtml(thumbnail.name)}</span>
           <span id="viewer-position">Original image (${currentIndex + 1} of ${filtered.length})</span>
@@ -1452,6 +1773,331 @@ async function updateViewerUI(): Promise<void> {
   }
 }
 
+function renderEditor(): void {
+  const thumbnail = editorSourcePath
+    ? getFilteredThumbnails().find((item) => item.sourcePath === editorSourcePath)
+    : null;
+  if (!editorSourcePath || !thumbnail) {
+    closeEditor();
+    return;
+  }
+  editorHost.innerHTML = `
+    <div class="editor-backdrop" role="dialog" aria-modal="true" aria-label="Photo editor">
+      <section class="editor-window">
+        <header class="editor-header"><div><strong>Edit</strong><span>${escapeHtml(thumbnail.name)}</span><small>${editorSaveError ?? (editorHasEdits() ? "Unsaved edits" : editorSavedOutputPath ? "Saved" : "No edits yet")}</small></div><div class="editor-header-actions"><div class="editor-menu"><button id="editor-more-menu" type="button" aria-expanded="${editorMenuOpen}" aria-label="Editor options">•••</button><div class="editor-menu-popover" ${editorMenuOpen ? "" : "hidden"}><label class="folder-option-toggle editor-clipping-toggle" title="Toggle with J. Hold Alt on Windows or Option on macOS while moving a Light slider to preview clipping."><input id="clipping-indicator-toggle" type="checkbox" ${clippingIndicatorEnabled ? "checked" : ""} /><span class="toggle-track" aria-hidden="true"></span><span>Clipping indicator</span></label><label class="folder-option-toggle editor-reveal-toggle"><input id="reveal-saved-file-toggle" type="checkbox" ${editorRevealSavedFile ? "checked" : ""} /><span class="toggle-track" aria-hidden="true"></span><span>Open saved file in ${savedFileManagerLabel()}</span></label><fieldset class="editor-save-options"><legend>When saving an edited version</legend><label><input name="save-original-strategy" value="originals-subfolder" type="radio" ${editorSaveOriginalStrategy === "originals-subfolder" ? "checked" : ""} /> Originals subfolder</label><label><input name="save-original-strategy" value="filename-original" type="radio" ${editorSaveOriginalStrategy === "filename-original" ? "checked" : ""} /> filename_original.EXT</label><label><input name="save-original-strategy" value="overwrite" type="radio" ${editorSaveOriginalStrategy === "overwrite" ? "checked" : ""} /> Overwrite original</label></fieldset></div></div><button id="save-editor" type="button">${editorHasEdits() ? "Save" : "Done"}</button></div></header>
+        <div class="editor-media" id="editor-media"><img id="editor-preview" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" /><img id="editor-image" src="" alt="${escapeHtml(thumbnail.name)}" /><div id="editor-vignette" aria-hidden="true"></div><div id="editor-frame" aria-hidden="true"></div><canvas id="clipping-overlay" aria-hidden="true"></canvas><svg id="straighten-guide" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><line /></svg></div>
+        <aside class="editor-panel">
+          <div class="editor-panel-heading"><h2>Adjustments</h2><button class="editor-reset" data-editor-action="reset" type="button">Reset</button></div>
+          <details class="editor-section" data-editor-section="light" ${editorSectionIsOpen("light") ? "open" : ""}><summary>Light</summary>
+            ${editorSlider("brightness", "Brightness", -100, 100)}
+            ${editorSlider("exposure", "Exposure", -5, 5, 0.1)}
+            ${editorSlider("contrast", "Contrast", -100, 100)}
+            ${editorSlider("highlights", "Highlights", -100, 100)}
+            ${editorSlider("shadows", "Shadows", -100, 100)}
+            ${editorSlider("whites", "Whites", -100, 100)}
+            ${editorSlider("blacks", "Blacks", -100, 100)}
+          </details>
+          <details class="editor-section" data-editor-section="colour" ${editorSectionIsOpen("colour") ? "open" : ""}><summary>Colour</summary>
+            ${editorSlider("vibrance", "Vibrance", -100, 100)}
+            ${editorSlider("saturation", "Saturation", -100, 100)}
+          </details>
+          <details class="editor-section" data-editor-section="black-and-white" ${editorSectionIsOpen("black-and-white") ? "open" : ""}><summary>Black &amp; White <button class="editor-summary-reset" data-editor-action="reset-bw" type="button">Reset</button></summary>
+            <div class="bw-methods" role="group" aria-label="Black and white conversion"><button data-bw-mode="neutral" type="button">Neutral</button><button data-bw-mode="contrast" type="button">High contrast</button><button data-bw-mode="matte" type="button">Matte</button><button data-bw-mode="soft" type="button">Soft</button></div>
+          </details>
+          <details class="editor-section" data-editor-section="straighten" ${editorSectionIsOpen("straighten") ? "open" : ""}><summary>Straighten</summary>
+            <p class="editor-help">Draw one horizontal or vertical guide. A new guide replaces the earlier rotation; no geometric warp is applied.</p>
+            <div class="straighten-actions"><button data-straighten-mode="horizontal" type="button">Draw horizontal</button><button data-straighten-mode="vertical" type="button">Draw vertical</button></div>
+            <div class="straighten-readout" id="straighten-readout">No guide drawn</div><button class="editor-text-button" data-editor-action="clear-straighten" type="button">Remove guide</button>
+          </details>
+          <details class="editor-section" data-editor-section="effects" ${editorSectionIsOpen("effects") ? "open" : ""}><summary>Effects</summary>
+            ${editorSlider("vignetteAmount", "Vignette", -100, 100)}
+            ${editorSlider("vignetteSize", "Vignette size", 0, 100)}
+            ${editorSlider("vignetteFeather", "Feather", 0, 100)}
+          </details>
+          <details class="editor-section" data-editor-section="frame" ${editorSectionIsOpen("frame") ? "open" : ""}><summary>Frame <button class="editor-summary-reset" data-editor-action="reset-frame" type="button">Reset</button></summary>
+            <div class="frame-methods" role="group" aria-label="Frame style"><button data-frame-style="gallery" type="button">Gallery</button><button data-frame-style="film" type="button">Film</button><button data-frame-style="matte" type="button">Matte</button><button data-frame-style="polaroid" type="button">Polaroid</button></div>
+            ${editorSlider("frameSize", "Size", 0, 100)}
+          </details>
+        </aside>
+      </section>
+    </div>`;
+  applyEditorPreview();
+}
+
+function editorSlider(name: EditorSliderKey, label: string, min: number, max: number, step = 1): string {
+  const value = editorAdjustments[name];
+  return `<label class="editor-slider"><span>${label}</span><input data-editor-adjustment="${name}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" /><input class="editor-value" data-editor-value="${name}" type="number" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label} value" /></label>`;
+}
+
+function editorRotation(): number {
+  return editorVerticalRotation ?? editorHorizontalRotation ?? 0;
+}
+
+function filterForAdjustments(values: EditorAdjustments): string {
+  const bw = values.blackAndWhite;
+  const bwContrast = bw === "contrast" ? 35 : bw === "matte" ? -20 : bw === "soft" ? -28 : 0;
+  const bwBrightness = bw === "matte" ? 8 : bw === "soft" ? 5 : 0;
+  const brightness = 100 + values.brightness + values.exposure * 12 + values.highlights * 0.12 + values.shadows * 0.1 + values.whites * 0.08 + values.blacks * 0.06 + bwBrightness;
+  const contrast = 100 + values.contrast + values.highlights * 0.08 - values.shadows * 0.05 + values.whites * 0.08 - values.blacks * 0.08 + bwContrast;
+  const saturation = bw === "none" ? Math.max(0, 100 + values.saturation + values.vibrance * 0.65) : 0;
+  return `brightness(${Math.max(0, brightness)}%) contrast(${Math.max(0, contrast)}%) saturate(${saturation}%) grayscale(${bw === "none" ? 0 : 1})`;
+}
+
+function editorFilter(): string {
+  return filterForAdjustments(editorAdjustments);
+}
+
+function applyThumbnailEditPreview(path: string, recipe: StoredEditRecipe): void {
+  document.querySelectorAll<HTMLImageElement>(`[data-thumbnail-preview-path="${CSS.escape(path)}"]`).forEach((image) => {
+    image.style.filter = filterForAdjustments(recipe.adjustments);
+    image.style.transform = `rotate(${recipe.rotation.toFixed(2)}deg)`;
+  });
+}
+
+function thumbnailPreviewStyle(path: string): string {
+  const recipe = editRecipeCache.get(path);
+  if (!recipe) return "";
+  return ` style="filter:${filterForAdjustments(recipe.adjustments)};transform:rotate(${recipe.rotation.toFixed(2)}deg)"`;
+}
+
+function editorPhotoBounds(): { left: number; top: number; width: number; height: number } | null {
+  const media = editorHost.querySelector<HTMLElement>("#editor-media");
+  const original = editorHost.querySelector<HTMLImageElement>("#editor-image");
+  const preview = editorHost.querySelector<HTMLImageElement>("#editor-preview");
+  const image = original?.naturalWidth && original?.naturalHeight ? original : preview;
+  if (!media || !image?.naturalWidth || !image.naturalHeight) return null;
+  const padding = 20;
+  const availableWidth = media.clientWidth - padding * 2;
+  const availableHeight = media.clientHeight - padding * 2;
+  const scale = Math.min(availableWidth / image.naturalWidth, availableHeight / image.naturalHeight);
+  const width = image.naturalWidth * scale;
+  const height = image.naturalHeight * scale;
+  return { left: padding + (availableWidth - width) / 2, top: padding + (availableHeight - height) / 2, width, height };
+}
+
+function positionEditorPhotoLayer(layer: HTMLElement, bounds: { left: number; top: number; width: number; height: number }): void {
+  layer.style.left = `${bounds.left}px`;
+  layer.style.top = `${bounds.top}px`;
+  layer.style.width = `${bounds.width}px`;
+  layer.style.height = `${bounds.height}px`;
+}
+
+function applyEditorPreview(): void {
+  const filter = editorFilter();
+  const transform = `rotate(${editorRotation().toFixed(2)}deg)`;
+  editorHost.querySelectorAll<HTMLImageElement>("#editor-preview, #editor-image").forEach((image) => {
+    image.style.filter = filter;
+    image.style.transform = transform;
+  });
+  const readout = editorHost.querySelector<HTMLElement>("#straighten-readout");
+  if (readout) {
+    const source = editorVerticalRotation !== null ? "vertical" : editorHorizontalRotation !== null ? "horizontal" : null;
+    readout.textContent = source ? `${source} guide: ${editorRotation().toFixed(1)}°` : "No guide drawn";
+  }
+  editorHost.querySelectorAll<HTMLButtonElement>("[data-bw-mode]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.bwMode === editorAdjustments.blackAndWhite);
+  });
+  editorHost.querySelectorAll<HTMLButtonElement>("[data-frame-style]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.frameStyle === editorAdjustments.frameStyle);
+  });
+  const bounds = editorPhotoBounds();
+  const vignette = editorHost.querySelector<HTMLElement>("#editor-vignette");
+  if (vignette) {
+    if (bounds) positionEditorPhotoLayer(vignette, bounds);
+    const amount = editorAdjustments.vignetteAmount;
+    const colour = amount >= 0 ? "0,0,0" : "255,255,255";
+    const opacity = Math.abs(amount) / 100;
+    const edgeStart = 95 - editorAdjustments.vignetteSize * 0.55;
+    const edgeEnd = Math.min(100, edgeStart + 3 + editorAdjustments.vignetteFeather * 0.5);
+    vignette.style.background = `radial-gradient(ellipse at center, transparent ${edgeStart}%, rgba(${colour},${opacity.toFixed(2)}) ${edgeEnd}%, rgba(${colour},${opacity.toFixed(2)}) 100%)`;
+  }
+  const frame = editorHost.querySelector<HTMLElement>("#editor-frame");
+  if (frame) {
+    if (bounds) positionEditorPhotoLayer(frame, bounds);
+    const style = editorAdjustments.frameStyle;
+    const size = editorAdjustments.frameSize;
+    frame.className = `frame-${style}`;
+    frame.style.setProperty("--frame-size", `${size / 2}px`);
+  }
+  const clipping = editorHost.querySelector<HTMLCanvasElement>("#clipping-overlay");
+  if (clipping) {
+    clipping.classList.toggle("is-visible", clippingIndicatorEnabled || editorAltClippingPreview);
+    if (clipping.classList.contains("is-visible")) void renderClippingMask();
+  }
+  const saveButton = editorHost.querySelector<HTMLButtonElement>("#save-editor");
+  if (saveButton && !saveButton.disabled) saveButton.textContent = editorHasEdits() ? "Save" : "Done";
+  const editState = editorHost.querySelector<HTMLElement>(".editor-header small");
+  if (editState) editState.textContent = editorSaveError ?? (editorHasEdits() ? "Unsaved edits" : editorSavedOutputPath ? "Saved" : "No edits yet");
+  scheduleEditorRecipeSave();
+}
+
+function adjustedLuminance(value: number): number {
+  const adjustment = editorAdjustments;
+  const brightness = 1 + (adjustment.brightness + adjustment.exposure * 12 + adjustment.highlights * 0.12 + adjustment.shadows * 0.1 + adjustment.whites * 0.08 + adjustment.blacks * 0.06) / 100;
+  const contrast = 1 + (adjustment.contrast + adjustment.highlights * 0.08 - adjustment.shadows * 0.05 + adjustment.whites * 0.08 - adjustment.blacks * 0.08) / 100;
+  return (value * brightness - 0.5) * contrast + 0.5;
+}
+
+function adjustedPixel(red: number, green: number, blue: number): [number, number, number] {
+  const adjustment = editorAdjustments;
+  const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  const targetLuminance = adjustedLuminance(luminance);
+  const scale = luminance > 0.00001 ? targetLuminance / luminance : targetLuminance;
+  let channels = [red * scale, green * scale, blue * scale];
+  const saturation = adjustment.blackAndWhite === "none" ? 1 + (adjustment.saturation + adjustment.vibrance * 0.65) / 100 : 0;
+  const neutral = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  channels = channels.map((channel) => neutral + (channel - neutral) * saturation);
+  return [channels[0], channels[1], channels[2]];
+}
+
+async function imageForClippingCanvas(image: HTMLImageElement): Promise<HTMLImageElement> {
+  const sourcePath = image.dataset.sourcePath ?? image.src;
+  if (clippingCanvasSource && clippingCanvasSourcePath === sourcePath) return clippingCanvasSource;
+  const response = await fetch(image.currentSrc || image.src);
+  if (!response.ok) throw new Error(`Could not load photo pixels for clipping preview (${response.status})`);
+  const blob = await response.blob();
+  if (clippingCanvasObjectUrl) URL.revokeObjectURL(clippingCanvasObjectUrl);
+  clippingCanvasObjectUrl = URL.createObjectURL(blob);
+  const source = new Image();
+  source.src = clippingCanvasObjectUrl;
+  await source.decode();
+  clippingCanvasSource = source;
+  clippingCanvasSourcePath = sourcePath;
+  return source;
+}
+
+async function renderClippingMask(): Promise<void> {
+  const canvas = editorHost.querySelector<HTMLCanvasElement>("#clipping-overlay");
+  const media = editorHost.querySelector<HTMLElement>("#editor-media");
+  const image = editorHost.querySelector<HTMLImageElement>("#editor-image");
+  if (!canvas || !media || !image || !image.complete || !image.naturalWidth || !image.naturalHeight) return;
+
+  const mediaRect = media.getBoundingClientRect();
+  const padding = 20;
+  const availableWidth = mediaRect.width - padding * 2;
+  const availableHeight = mediaRect.height - padding * 2;
+  const scale = Math.min(availableWidth / image.naturalWidth, availableHeight / image.naturalHeight);
+  const displayWidth = image.naturalWidth * scale;
+  const displayHeight = image.naturalHeight * scale;
+  const left = padding + (availableWidth - displayWidth) / 2;
+  const top = padding + (availableHeight - displayHeight) / 2;
+  let source: HTMLImageElement;
+  try {
+    source = await imageForClippingCanvas(image);
+  } catch (error) {
+    console.warn("Could not load photo pixels for clipping indicator", error);
+    canvas.classList.remove("is-visible");
+    return;
+  }
+  if (!canvas.classList.contains("is-visible") || editorSourcePath !== image.dataset.sourcePath) return;
+  const sampleWidth = Math.min(1024, source.naturalWidth);
+  const sampleHeight = Math.max(1, Math.round(source.naturalHeight * (sampleWidth / source.naturalWidth)));
+
+  canvas.width = sampleWidth;
+  canvas.height = sampleHeight;
+  canvas.style.left = `${left}px`;
+  canvas.style.top = `${top}px`;
+  canvas.style.width = `${displayWidth}px`;
+  canvas.style.height = `${displayHeight}px`;
+  try {
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+    context.clearRect(0, 0, sampleWidth, sampleHeight);
+    context.drawImage(source, 0, 0, sampleWidth, sampleHeight);
+    const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight);
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const [red, green, blue] = adjustedPixel(pixels.data[index] / 255, pixels.data[index + 1] / 255, pixels.data[index + 2] / 255);
+      if (red > 1 || green > 1 || blue > 1) {
+        pixels.data[index] = 255;
+        pixels.data[index + 1] = 35;
+        pixels.data[index + 2] = 25;
+        pixels.data[index + 3] = 205;
+      } else if (red < 0 || green < 0 || blue < 0) {
+        pixels.data[index] = 0;
+        pixels.data[index + 1] = 92;
+        pixels.data[index + 2] = 255;
+        pixels.data[index + 3] = 205;
+      } else {
+        pixels.data[index + 3] = 0;
+      }
+    }
+    context.putImageData(pixels, 0, 0);
+  } catch (error) {
+    console.warn("Could not render clipping indicator", error);
+    canvas.classList.remove("is-visible");
+  }
+}
+
+function editorGuidePoint(event: PointerEvent): { x: number; y: number } | null {
+  const media = editorHost.querySelector<HTMLElement>("#editor-media");
+  if (!media) return null;
+  const rect = media.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
+    y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
+  };
+}
+
+function drawStraightenGuide(start: { x: number; y: number }, end: { x: number; y: number }): void {
+  const line = editorHost.querySelector<SVGLineElement>("#straighten-guide line");
+  if (!line) return;
+  line.setAttribute("x1", String(start.x));
+  line.setAttribute("y1", String(start.y));
+  line.setAttribute("x2", String(end.x));
+  line.setAttribute("y2", String(end.y));
+  line.parentElement?.classList.add("is-visible");
+}
+
+function normaliseAngle(angle: number): number {
+  let result = angle;
+  while (result > 90) result -= 180;
+  while (result < -90) result += 180;
+  return result;
+}
+
+function commitStraightenGuide(end: { x: number; y: number }): void {
+  if (!editorStraightenStart || !editorStraightenMode) return;
+  const dx = end.x - editorStraightenStart.x;
+  const dy = end.y - editorStraightenStart.y;
+  if (Math.hypot(dx, dy) > 3) {
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    const adjustment = editorStraightenMode === "horizontal"
+      ? -normaliseAngle(angle)
+      : -normaliseAngle(angle - 90);
+    if (editorStraightenMode === "horizontal") {
+      editorHorizontalRotation = adjustment;
+      editorVerticalRotation = null;
+    } else {
+      editorVerticalRotation = adjustment;
+      editorHorizontalRotation = null;
+    }
+  }
+  editorStraightenMode = null;
+  editorStraightenStart = null;
+  applyEditorPreview();
+}
+
+async function updateEditorPreview(): Promise<void> {
+  if (!editorSourcePath) return;
+  const image = editorHost.querySelector<HTMLImageElement>("#editor-image");
+  if (!image) return;
+  const path = editorSourcePath;
+  image.dataset.sourcePath = path;
+  try {
+    const renderablePath = await invoke<string>("get_viewer_path", { path });
+    if (editorSourcePath === path && image.dataset.sourcePath === path) {
+      image.onload = () => {
+        applyEditorPreview();
+      };
+      image.src = `${convertFileSrc(renderablePath)}?t=${Date.now()}`;
+      applyEditorPreview();
+    }
+  } catch (error) {
+    console.error("Failed to load image for editor", error);
+  }
+}
+
 function render(): void {
   if (!app) {
     return;
@@ -1484,7 +2130,7 @@ function render(): void {
       <aside class="sidebar" aria-label="Scanned folders">
         <div class="sidebar-heading">
           <p class="eyebrow">Peter’s Photo Manager</p>
-          <div class="sidebar-title-row"><h1>Folders</h1><div class="folder-menu-anchor"><button class="folder-options-button" id="folder-options-button" type="button" aria-expanded="${sidebarMenuOpen}" aria-controls="folder-options-menu" title="Folder options">•••</button>${sidebarMenuOpen ? `<div class="folder-options-menu" id="folder-options-menu"><p class="eyebrow">Folder options</p><button class="primary-button" id="add-folder" type="button">Add folder</button><label class="folder-option-toggle"><input id="hide-empty-folders" type="checkbox" ${hideEmptyFolders ? "checked" : ""} /><span class="toggle-track" aria-hidden="true"></span><span>Hide folders with no images</span></label>${settings.watchedFolders.length ? `<button id="reset-catalogue" type="button" class="reset-catalogue-button">⚠ Reset & Rescan</button>` : ""}</div>` : ""}</div></div>
+          <div class="sidebar-title-row"><h1>Folders</h1><div class="folder-menu-anchor"><button class="folder-options-button" id="folder-options-button" type="button" aria-expanded="${sidebarMenuOpen}" aria-controls="folder-options-menu" title="Folder options">•••</button>${sidebarMenuOpen ? `<div class="folder-options-menu" id="folder-options-menu"><p class="eyebrow">Folder options</p><button class="primary-button" id="add-folder" type="button">Add folder</button><label class="folder-option-toggle"><input id="hide-empty-folders" type="checkbox" ${hideEmptyFolders ? "checked" : ""} /><span class="toggle-track" aria-hidden="true"></span><span>Hide folders with no images</span></label><label class="folder-option-toggle"><input id="hide-originals" type="checkbox" ${hideOriginals ? "checked" : ""} /><span class="toggle-track" aria-hidden="true"></span><span>Hide originals</span></label>${settings.watchedFolders.length ? `<button id="reset-catalogue" type="button" class="reset-catalogue-button">⚠ Reset & Rescan</button>` : ""}</div>` : ""}</div></div>
         </div>
         <div class="folder-list panel-body">
           ${settings.watchedFolders.length ? `<button class="folder-item ${isAllFolders ? "is-selected" : ""}" type="button" data-select-folder="${ALL_FOLDERS}"><span class="tree-toggle has-children" data-toggle-top-level-folders>${topLevelFoldersExpanded ? "⌄" : "›"}</span><span>All Folders</span></button>` : ""}
@@ -1538,7 +2184,7 @@ function render(): void {
                       : `<div class="thumbnail-grid" style="--thumbnail-size: ${thumbnailSize}px">
                         ${filteredThumbnails
                           .map(
-                            (thumbnail, index) => `<div class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" role="button" tabindex="0" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}" draggable="true"><img src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" draggable="false" /><span>${escapeHtml(thumbnail.name)}</span></div>`,
+                            (thumbnail, index) => `<div class="thumbnail-card ${selectedThumbnailPaths.has(thumbnail.sourcePath) ? "is-selected" : ""}" role="button" tabindex="0" data-thumbnail-index="${index}" data-thumbnail-path="${escapeHtml(thumbnail.sourcePath)}" title="${escapeHtml(thumbnail.name)}" draggable="true"><img data-thumbnail-preview-path="${escapeHtml(thumbnail.sourcePath)}" src="${escapeHtml(convertFileSrc(thumbnail.thumbnailPath))}?t=${thumbnail.lastModified}" alt="${escapeHtml(thumbnail.name)}" loading="lazy" draggable="false"${thumbnailPreviewStyle(thumbnail.sourcePath)} /><span>${escapeHtml(thumbnail.name)}</span></div>`,
                           )
                           .join("")}
                       </div>`
@@ -1620,6 +2266,12 @@ function render(): void {
     hideEmptyFolders = (event.target as HTMLInputElement).checked;
     void saveDisplayPreferences();
     render();
+  });
+  document.querySelector<HTMLInputElement>("#hide-originals")?.addEventListener("change", (event) => {
+    hideOriginals = (event.target as HTMLInputElement).checked;
+    void saveDisplayPreferences();
+    render();
+    if (!hideOriginals && activeFolder) void scanSelectedFolder();
   });
   document.querySelector<HTMLInputElement>("#thumbnail-size")?.addEventListener("input", (event) => {
     thumbnailSize = Number((event.target as HTMLInputElement).value);
@@ -1772,6 +2424,33 @@ async function loadCatalogFiles(folder: string | null): Promise<void> {
         rating: file.rating,
         keywords: file.keywords,
       });
+    }
+    editRecipeCache.clear();
+    const recipes = await Promise.all(
+      catalogFiles.map(async (file) => {
+        try {
+          const settingsJson = await invoke<string | null>("get_edit_recipe", {
+            path: file.path,
+            fileSize: file.fileSize,
+            lastModified: file.lastModified,
+          });
+          if (!settingsJson) return null;
+          const recipe = JSON.parse(settingsJson) as { adjustments?: Partial<EditorAdjustments>; rotation?: number };
+          return {
+            path: file.path,
+            recipe: {
+              adjustments: { ...defaultEditorAdjustments(), ...recipe.adjustments },
+              rotation: typeof recipe.rotation === "number" ? recipe.rotation : 0,
+            } satisfies StoredEditRecipe,
+          };
+        } catch (error) {
+          console.error("Could not load edit recipe", error);
+          return null;
+        }
+      }),
+    );
+    for (const result of recipes) {
+      if (result) editRecipeCache.set(result.path, result.recipe);
     }
     thumbnails = catalogFiles.map((file) => ({
       name: file.name,
@@ -1950,6 +2629,10 @@ async function initialize(): Promise<void> {
       if (!(target instanceof Element)) {
         return;
       }
+      if (target.closest("#open-editor")) {
+        openEditor();
+        return;
+      }
       if (target.closest("#close-viewer")) {
         closeViewer();
         return;
@@ -1981,6 +2664,178 @@ async function initialize(): Promise<void> {
         x: event.clientX,
         y: event.clientY,
       });
+    });
+    editorHost.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("#close-editor") || target.classList.contains("editor-backdrop")) {
+        closeEditor();
+        return;
+      }
+      if (target.closest("#save-editor")) {
+        void saveEditorImage();
+        return;
+      }
+      if (target.closest("#editor-more-menu")) {
+        editorMenuOpen = !editorMenuOpen;
+        const popover = editorHost.querySelector<HTMLElement>(".editor-menu-popover");
+        const button = editorHost.querySelector<HTMLButtonElement>("#editor-more-menu");
+        if (popover) popover.hidden = !editorMenuOpen;
+        if (button) button.setAttribute("aria-expanded", String(editorMenuOpen));
+        return;
+      }
+      const blackAndWhiteMode = target.closest<HTMLButtonElement>("[data-bw-mode]")?.dataset.bwMode as EditorAdjustments["blackAndWhite"] | undefined;
+      if (blackAndWhiteMode) {
+        editorAdjustments.blackAndWhite = blackAndWhiteMode;
+        applyEditorPreview();
+        return;
+      }
+      const frameStyle = target.closest<HTMLButtonElement>("[data-frame-style]")?.dataset.frameStyle as EditorAdjustments["frameStyle"] | undefined;
+      if (frameStyle) {
+        editorAdjustments.frameStyle = frameStyle;
+        applyEditorPreview();
+        return;
+      }
+      const straightenMode = target.closest<HTMLButtonElement>("[data-straighten-mode]")?.dataset.straightenMode as "horizontal" | "vertical" | undefined;
+      if (straightenMode) {
+        editorStraightenMode = straightenMode;
+        editorStraightenStart = null;
+        return;
+      }
+      const action = target.closest<HTMLButtonElement>("[data-editor-action]")?.dataset.editorAction;
+      if (action === "reset") {
+        editorAdjustments = defaultEditorAdjustments();
+        editorHorizontalRotation = null;
+        editorVerticalRotation = null;
+        editorHost.querySelector<SVGElement>("#straighten-guide")?.classList.remove("is-visible");
+        editorHost.querySelectorAll<HTMLInputElement>("[data-editor-adjustment]").forEach((input) => {
+          const name = input.dataset.editorAdjustment as EditorSliderKey;
+          input.value = String(editorAdjustments[name]);
+          const valueInput = editorHost.querySelector<HTMLInputElement>(`[data-editor-value="${name}"]`);
+          if (valueInput) valueInput.value = String(editorAdjustments[name]);
+        });
+        applyEditorPreview();
+      } else if (action === "clear-straighten") {
+        editorHost.querySelector<SVGElement>("#straighten-guide")?.classList.remove("is-visible");
+        applyEditorPreview();
+      } else if (action === "reset-bw") {
+        editorAdjustments.blackAndWhite = "none";
+        applyEditorPreview();
+      } else if (action === "reset-frame") {
+        editorAdjustments.frameStyle = "none";
+        editorAdjustments.frameSize = 0;
+        const sizeSlider = editorHost.querySelector<HTMLInputElement>("[data-editor-adjustment=\"frameSize\"]");
+        const sizeValue = editorHost.querySelector<HTMLInputElement>("[data-editor-value=\"frameSize\"]");
+        if (sizeSlider) sizeSlider.value = "0";
+        if (sizeValue) sizeValue.value = "0";
+        applyEditorPreview();
+      }
+    });
+    editorHost.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      const name = (target.dataset.editorAdjustment ?? target.dataset.editorValue) as EditorSliderKey | undefined;
+      if (!name || !Number.isFinite(Number(target.value))) return;
+      editorAdjustments[name] = Number(target.value);
+      editorSavedOutputPath = null;
+      editorSaveError = null;
+      if (name === "frameSize" && editorAdjustments[name] > 0) {
+        window.localStorage.setItem(editorFrameSizeStorageKey, String(editorAdjustments[name]));
+      }
+      const counterpart = target.dataset.editorAdjustment
+        ? editorHost.querySelector<HTMLInputElement>(`[data-editor-value="${name}"]`)
+        : editorHost.querySelector<HTMLInputElement>(`[data-editor-adjustment="${name}"]`);
+      if (counterpart) counterpart.value = String(editorAdjustments[name]);
+      applyEditorPreview();
+    });
+    editorHost.addEventListener("dblclick", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || !target.dataset.editorAdjustment) return;
+      const name = target.dataset.editorAdjustment as EditorSliderKey;
+      const neutral = defaultEditorAdjustments()[name];
+      target.value = String(neutral);
+      editorAdjustments[name] = neutral;
+      const valueInput = editorHost.querySelector<HTMLInputElement>(`[data-editor-value="${name}"]`);
+      if (valueInput) valueInput.value = String(neutral);
+      applyEditorPreview();
+    });
+    editorHost.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.id === "clipping-indicator-toggle") {
+        clippingIndicatorEnabled = target.checked;
+        window.localStorage.setItem(editorClippingStorageKey, String(clippingIndicatorEnabled));
+        applyEditorPreview();
+      } else if (target instanceof HTMLInputElement && target.id === "reveal-saved-file-toggle") {
+        editorRevealSavedFile = target.checked;
+        window.localStorage.setItem(editorRevealSavedStorageKey, String(editorRevealSavedFile));
+      } else if (target instanceof HTMLInputElement && target.name === "save-original-strategy") {
+        const strategy = target.value;
+        if (strategy === "originals-subfolder" || strategy === "filename-original" || strategy === "overwrite") {
+          editorSaveOriginalStrategy = strategy;
+          try {
+            window.localStorage.setItem(editorSaveOriginalStorageKey, strategy);
+          } catch (error) {
+            console.warn("Could not save editor export preference", error);
+          }
+        }
+      }
+    });
+    editorHost.addEventListener("toggle", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLDetailsElement && target.dataset.editorSection) {
+        saveEditorSectionState(target.dataset.editorSection, target.open);
+      }
+    }, true);
+    editorHost.addEventListener("pointerdown", (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.dataset.editorAdjustment) {
+        editorAltClippingPreview = event.altKey;
+        applyEditorPreview();
+      }
+    });
+    editorHost.addEventListener("pointerup", () => {
+      if (editorAltClippingPreview) {
+        editorAltClippingPreview = false;
+        applyEditorPreview();
+      }
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!editorMenuOpen || !(event.target instanceof Element) || event.target.closest(".editor-menu")) return;
+      editorMenuOpen = false;
+      const popover = editorHost.querySelector<HTMLElement>(".editor-menu-popover");
+      const button = editorHost.querySelector<HTMLButtonElement>("#editor-more-menu");
+      if (popover) popover.hidden = true;
+      if (button) button.setAttribute("aria-expanded", "false");
+    });
+    editorHost.addEventListener("keydown", (event) => {
+      if (event.altKey && event.target instanceof HTMLInputElement && event.target.dataset.editorAdjustment) {
+        editorAltClippingPreview = true;
+        applyEditorPreview();
+      }
+    });
+    editorHost.addEventListener("keyup", () => {
+      if (editorAltClippingPreview) {
+        editorAltClippingPreview = false;
+        applyEditorPreview();
+      }
+    });
+    editorHost.addEventListener("pointerdown", (event) => {
+      if (!editorStraightenMode || !(event.target instanceof Element) || !event.target.closest("#editor-media")) return;
+      const point = editorGuidePoint(event);
+      if (!point) return;
+      event.preventDefault();
+      editorStraightenStart = point;
+      drawStraightenGuide(point, point);
+      (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+    });
+    editorHost.addEventListener("pointermove", (event) => {
+      if (!editorStraightenStart) return;
+      const point = editorGuidePoint(event);
+      if (point) drawStraightenGuide(editorStraightenStart, point);
+    });
+    editorHost.addEventListener("pointerup", (event) => {
+      if (!editorStraightenStart) return;
+      const point = editorGuidePoint(event);
+      if (point) commitStraightenGuide(point);
     });
     document.addEventListener("click", (event) => {
       if (ignoreContextMenuDismiss || (event instanceof MouseEvent && event.button !== 0)) {
@@ -2394,10 +3249,30 @@ async function initialize(): Promise<void> {
         void setPhotoRating(selectedThumbnailPath, rating);
         return;
       }
+      if (editorSourcePath) {
+        if (event.key === "Alt") {
+          editorAltClippingPreview = true;
+          applyEditorPreview();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          closeEditor();
+        } else if (!isFormControl(event.target) && event.key.toLowerCase() === "j") {
+          event.preventDefault();
+          clippingIndicatorEnabled = !clippingIndicatorEnabled;
+          window.localStorage.setItem(editorClippingStorageKey, String(clippingIndicatorEnabled));
+          const toggle = editorHost.querySelector<HTMLInputElement>("#clipping-indicator-toggle");
+          if (toggle) toggle.checked = clippingIndicatorEnabled;
+          applyEditorPreview();
+        }
+        return;
+      }
       if (viewerSourcePath) {
         if (event.key === "Escape") {
           event.preventDefault();
           closeViewer();
+        } else if (!isFormControl(event.target) && event.key.toLowerCase() === "e") {
+          event.preventDefault();
+          openEditor();
         } else if (event.key === "ArrowLeft") {
           event.preventDefault();
           const filtered = getFilteredThumbnails();
@@ -2437,6 +3312,12 @@ async function initialize(): Promise<void> {
         openViewer(selectedThumbnailPath);
       }
     });
+    document.addEventListener("keyup", (event) => {
+      if (editorSourcePath && event.key === "Alt" && editorAltClippingPreview) {
+        editorAltClippingPreview = false;
+        applyEditorPreview();
+      }
+    });
     await listen<ScanProgress>("scan-progress", (event) => {
       scanProgress = event.payload;
       if (isScanning) {
@@ -2444,12 +3325,14 @@ async function initialize(): Promise<void> {
       }
     });
     await listen<ThumbnailProgress>("thumbnail-progress", (event) => {
+      if (isRefreshingSavedCatalogue) return;
       thumbnailProgress = event.payload;
       isScanning = false;
       isGeneratingThumbnails = true;
       scheduleProgressRender();
     });
     await listen("catalogue-updated", async () => {
+      if (isRefreshingSavedCatalogue) return;
       if (activeFolder) {
         await loadCatalogFiles(activeFolder);
         render();
@@ -2480,6 +3363,7 @@ async function initialize(): Promise<void> {
     thumbnailSortKey = settings.thumbnailSortKey;
     thumbnailSortAscending = settings.thumbnailSortAscending;
     hideEmptyFolders = settings.hideEmptyFolders;
+    hideOriginals = settings.hideOriginals;
     await loadFolderTrees();
     render();
 

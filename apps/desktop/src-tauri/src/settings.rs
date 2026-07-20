@@ -21,6 +21,10 @@ fn default_hide_empty_folders() -> bool {
     true
 }
 
+fn default_hide_originals() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -38,6 +42,8 @@ pub struct AppSettings {
     pub thumbnail_sort_ascending: bool,
     #[serde(default = "default_hide_empty_folders")]
     pub hide_empty_folders: bool,
+    #[serde(default = "default_hide_originals")]
+    pub hide_originals: bool,
 }
 
 impl Default for AppSettings {
@@ -50,6 +56,7 @@ impl Default for AppSettings {
             thumbnail_sort_key: default_thumbnail_sort_key(),
             thumbnail_sort_ascending: default_thumbnail_sort_ascending(),
             hide_empty_folders: default_hide_empty_folders(),
+            hide_originals: default_hide_originals(),
         }
     }
 }

@@ -1,5 +1,117 @@
 # Prompt Log
 
+## 2026-07-19T20:31:09-0400 — Add original archive visibility control
+
+- Prompt summary: Add a persisted Hide originals switch to Folder options using the existing toggle style, and make the Add folder button match the Reset & Rescan button height.
+
+## 2026-07-19T20:29:01-0400 — Remove save-time processing delay
+
+- Prompt summary: Prevent a completed save from blocking on a full-folder thumbnail rebuild, avoid treating archived Originals as normal gallery images, and let catalogue refresh continue in the background.
+
+## 2026-07-19T20:25:01-0400 — Diagnose missing rendered output
+
+- Prompt summary: Investigate why a completed editor save does not appear on disk, verify the JPEG save transaction directly, and ensure save failures are visible rather than being mistaken for a successful save.
+
+## 2026-07-19T20:24:13-0400 — Refresh viewer after leaving a saved edit
+
+- Prompt summary: Ensure pressing Escape to leave the editor after a successful save reloads the viewer from the saved image rather than retaining a stale pre-save preview.
+
+## 2026-07-19T20:23:16-0400 — Add saved-file reveal preference and saved editor state
+
+- Prompt summary: Add a platform-aware editor option to reveal a saved image in Finder or Explorer, and make the editor clearly indicate that saving has completed instead of leaving an ambiguous Save label.
+
+## 2026-07-19T20:20:00-0400 — Implement editor save workflow
+
+- Prompt summary: Continue from the validated native DNG backend to build the editor save transaction, including rendering pixels, archiving RAW originals, writing replacement output, and refreshing the catalogue.
+
+## 2026-07-19T20:05:00-0400 — Complete Adobe XMP linkage for native DNG writer
+
+- Prompt summary: Continue the embedded DNG writer by integrating Adobe’s XMP dependency, validating the native bridge, and only then enabling rendered-DNG save behavior.
+
+## 2026-07-19T15:42:00-0400 — Continue native DNG SDK build after Xcode installation
+
+- Prompt summary: Confirm full Xcode is installed and continue building Adobe’s native DNG SDK dependencies for rendered-DNG output.
+
+## 2026-07-19T15:24:00-0400 — Install full Xcode for embedded DNG support
+
+- Prompt summary: Approve installing Apple’s full Xcode toolchain because Adobe’s current macOS DNG SDK project requires it to build the bundled JPEG XL dependency.
+
+## 2026-07-19T15:10:00-0400 — Build native DNG SDK dependencies
+
+- Prompt summary: Approve installing CMake so Adobe DNG SDK dependencies can be built and the embedded rendered-DNG writer can be completed.
+
+## 2026-07-19T14:55:00-0400 — Integrate native DNG writer
+
+- Prompt summary: Proceed with direct Adobe DNG SDK integration so RAW edits can archive their untouched originals and write rendered DNG output.
+
+## 2026-07-19T14:48:00-0400 — Select rendered-DNG RAW save workflow
+
+- Prompt summary: Adopt a RAW save workflow that moves the untouched original into an Originals subfolder, writes a rendered DNG in its former location, and plans a later original-restore feature.
+
+## 2026-07-19T14:40:00-0400 — Assess DNG adjustment interoperability
+
+- Prompt summary: Determine whether DNG-embedded editing settings, including frames, can be read by Lightroom, Photoshop, and Affinity Photo.
+
+## 2026-07-19T14:35:00-0400 — Evaluate DNG output for edited RAW photos
+
+- Prompt summary: Confirm same-format saving for JPEG, PNG, and WebP, and assess whether RAW edits can be safely saved as DNG versus requiring recipe metadata or rendered exports.
+
+## 2026-07-19T14:30:00-0400 — Decide edited-image save strategy
+
+- Prompt summary: Replace the editor Done action with Save when edits exist and decide whether edited files should retain their original format or use a separate export workflow.
+
+## 2026-07-19T14:20:00-0400 — Show edit previews in thumbnails
+
+- Prompt summary: Display each valid saved edit recipe in the thumbnail grid after returning from the editor.
+
+## 2026-07-19T14:13:00-0400 — Preserve edits after closing the editor
+
+- Prompt summary: Keep the active adjustment preview visible in the image viewer when exiting the editor.
+
+## 2026-07-19T14:04:00-0400 — Persist non-destructive edit recipes
+
+- Prompt summary: Preserve straightening after hiding its guide, retain clipping and frame-size preferences, and store per-image non-destructive edit recipes in the catalogue only while the matching original remains available.
+
+## 2026-07-19T13:45:00-0400 — Refine editor action, vignette, and frame layering
+
+- Prompt summary: Keep the viewer Edit button visible, add vignette edge feathering, correct Film frame sizing, and prevent clipping overlays from appearing on frames.
+
+## 2026-07-19T13:36:00-0400 — Simplify frame controls
+
+- Prompt summary: Remove the Frame spread slider, provide a Frame Reset action instead of None, add a fourth Polaroid frame style, and prevent Film size from shrinking the photo.
+
+## 2026-07-19T13:25:00-0400 — Improve editor clipping and numeric controls
+
+- Prompt summary: Close editor options when clicking away, replace inconsistent luminance-based clipping with channel-aware adjustment evaluation, and make slider values editable.
+
+## 2026-07-19T13:12:00-0400 — Refine editor menu, slider reset, and frames
+
+- Prompt summary: Place original-handling choices beneath the clipping switch, use EXT in the filename convention, reset adjustment sliders on double-click, and constrain frames to the photograph instead of the editor canvas.
+
+## 2026-07-19T13:01:00-0400 — Repair editor clipping switch and modifier handling
+
+- Prompt summary: Match the editor clipping control to the folder-options switch, shorten the future filename convention to EXT, and repair persistent and Option/Alt-triggered clipping previews.
+
+## 2026-07-19T12:47:00-0400 — Correct clipping mask and refine editor slider behavior
+
+- Prompt summary: Move clipping shortcut guidance into a hover tooltip, replace the incorrect corner clipping decoration with an image-bounded pixel mask, and use the supplied slider-design notes to guide isolated tonal behavior and symmetric contrast.
+
+## 2026-07-19T12:34:00-0400 — Add editor original-handling preferences
+
+- Prompt summary: Keep the clipping indicator inside the editor overflow menu and add locally saved preferences for future edited-photo saving: Originals subfolder, filename_original.extension, or overwrite original.
+
+## 2026-07-19T12:24:00-0400 — Extend editor previews and controls
+
+- Prompt summary: Add an editor overflow menu with clipping indicator controls and Lightroom-style Alt/Option preview behavior, revise black-and-white and straighten controls, add vignette and frame previews, and retain collapsed adjustment-panel state between editor sessions.
+
+## 2026-07-19T12:10:00-0400 — Add preview-only basic editor adjustments
+
+- Prompt summary: Fix the viewer Edit button hover behavior, then add unsaved basic light and colour adjustments, black-and-white conversion methods, collapsible control groups, and horizontal/vertical draw-to-straighten guides.
+
+## 2026-07-19T11:42:20-0400 — Plan non-destructive edit module for 0.4.0-alpha.1
+
+- Prompt summary: Review the changelog and user manual, create a dedicated branch, advance the application to version 0.4.0-alpha.1, and define a Lightroom-inspired edit module opened from the image viewer with the E key or a cursor-revealed edit control.
+
 ## 2026-07-19T03:15:00-0400 — Implement search engine for alpha 10
 
 - Prompt summary: Bumped configuration versions to v0.3.0-alpha.10, styled search input header elements, implemented real-time filtering with advanced key-value tokens (tag, camera, lens, location, rating, format), updated keyboard/viewer navigation to respect filtered results, and documented usage instructions in user-manual.md.
@@ -665,3 +777,14 @@
 
 - Prompt summary: Continue the agentic project setup interview using the initial software specification for Peter’s Photo Manager as the working context.
 - Technical context: Existing specification describes an incremental, local-first Rust/Tauri desktop photo manager for macOS and Windows.
+# 2026-07-19T14:55:00-0400
+
+Goal: Implement the selected embedded DNG SDK approach for saving rendered RAW edits.
+
+Summary: Proceed with direct native DNG SDK integration, archive RAW originals in the selected Originals subfolder, and write rendered DNG output for edited RAW files.
+
+# 2026-07-19T14:48:00-0400
+
+Goal: Select the RAW save strategy.
+
+Summary: Use a rendered DNG at the source location after archiving the untouched RAW in an Originals subfolder, with original restoration deferred for a later feature.

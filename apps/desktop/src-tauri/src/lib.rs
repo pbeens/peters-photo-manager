@@ -1,4 +1,7 @@
 mod db;
+#[cfg(all(target_os = "macos", target_arch = "aarch64", ppm_embedded_dng_writer))]
+mod dng_writer;
+mod editor_save;
 mod scanner;
 mod settings;
 mod thumbnails;
@@ -36,6 +39,7 @@ fn save_display_preferences(
     thumbnail_sort_key: String,
     thumbnail_sort_ascending: bool,
     hide_empty_folders: bool,
+    hide_originals: bool,
 ) -> Result<AppSettings, String> {
     if !(120..=300).contains(&thumbnail_size) {
         return Err("Thumbnail size must be between 120 and 300 pixels.".to_string());
@@ -52,6 +56,7 @@ fn save_display_preferences(
     settings.thumbnail_sort_key = thumbnail_sort_key;
     settings.thumbnail_sort_ascending = thumbnail_sort_ascending;
     settings.hide_empty_folders = hide_empty_folders;
+    settings.hide_originals = hide_originals;
     settings::save(&app, &settings)?;
     Ok(settings)
 }
@@ -302,6 +307,67 @@ fn get_catalogued_files(
     }
     .map_err(|err| err.to_string())?;
     Ok(files)
+}
+
+#[tauri::command]
+fn save_edit_recipe(
+    db_state: tauri::State<'_, DbState>,
+    path: String,
+    file_size: u64,
+    last_modified: u64,
+    settings_json: String,
+) -> Result<(), String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    db::save_edit_recipe(&conn, &path, file_size, last_modified, &settings_json)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_edit_recipe(
+    db_state: tauri::State<'_, DbState>,
+    path: String,
+    file_size: u64,
+    last_modified: u64,
+) -> Result<Option<String>, String> {
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    db::get_edit_recipe(&conn, &path, file_size, last_modified).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn save_edited_image(
+    db_state: tauri::State<'_, DbState>,
+    path: String,
+    adjustments: editor_save::EditorAdjustments,
+    rotation: f32,
+    original_save_strategy: String,
+) -> Result<editor_save::SaveResult, String> {
+    let source_path = Path::new(&path).to_path_buf();
+    let save_strategy_for_render = original_save_strategy.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        editor_save::save(&source_path, &adjustments, rotation, &save_strategy_for_render)
+    })
+    .await
+    .map_err(|error| format!("Image save worker could not finish: {error}"))??;
+
+    let conn = db_state
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+    db::record_saved_edit(
+        &conn,
+        &result.output_path,
+        &path,
+        result.archived_original_path.as_deref(),
+        &original_save_strategy,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -796,6 +862,16 @@ async fn perform_scan_and_sync(
             .iter()
             .any(|excluded| Path::new(&file.path).starts_with(Path::new(excluded)))
     });
+    if settings::load(&app)?.hide_originals {
+        // Editor-created `Originals` folders are an archive, not a second
+        // set of gallery images. Keeping them out of normal scans avoids
+        // duplicate thumbnails and expensive RAW processing after an edit.
+        scan_res.files.retain(|file| {
+            !Path::new(&file.path)
+                .components()
+                .any(|component| component.as_os_str() == "Originals")
+        });
+    }
 
     // 2. Open DB and query folder index & existing catalogued files
     let conn_mutex = &db_state.0;
@@ -1578,8 +1654,23 @@ fn get_viewer_path(app: AppHandle, path: String) -> Result<String, String> {
             let source_str = file_path.to_string_lossy();
             let preview_path_str = preview_path.to_string_lossy();
             let _ = std::fs::create_dir_all(&cache_dir);
-            quickraw::Export::export_thumbnail_to_file(&source_str, &preview_path_str)
-                .map_err(|error| format!("Could not extract RAW preview for {}: {error}", file_path.display()))?;
+            if quickraw::Export::export_thumbnail_to_file(&source_str, &preview_path_str).is_err()
+                || !preview_path.is_file()
+            {
+                let render = quickraw::Export::new(
+                    quickraw::Input::ByFile(&source_str),
+                    quickraw::Output::new(
+                        quickraw::DemosaicingMethod::Linear,
+                        quickraw::data::XYZ2SRGB,
+                        quickraw::data::GAMMA_SRGB,
+                        quickraw::OutputType::Image8(preview_path_str.to_string()),
+                        false,
+                        false,
+                    ),
+                ).map_err(|error| format!("Could not render RAW preview for {}: {error}", file_path.display()))?;
+                render.export_image(90)
+                    .map_err(|error| format!("Could not render RAW preview for {}: {error}", file_path.display()))?;
+            }
         }
 
         Ok(preview_path.to_string_lossy().into_owned())
@@ -1831,6 +1922,9 @@ pub fn run() {
             get_viewer_path,
             copy_image_to_clipboard,
             get_catalogued_files,
+            save_edit_recipe,
+            get_edit_recipe,
+            save_edited_image,
             remove_from_catalogue,
             delete_from_disk,
             set_photo_rating,

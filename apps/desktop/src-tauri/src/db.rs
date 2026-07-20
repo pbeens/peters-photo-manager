@@ -79,6 +79,28 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> Result<Connection, rusqlite::Error
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS edit_recipes (
+            path TEXT PRIMARY KEY REFERENCES files(path) ON DELETE CASCADE,
+            source_file_size INTEGER NOT NULL,
+            source_last_modified INTEGER NOT NULL,
+            settings_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS saved_edits (
+            rendered_path TEXT PRIMARY KEY,
+            source_path TEXT NOT NULL,
+            archived_original_path TEXT,
+            save_strategy TEXT NOT NULL,
+            saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        [],
+    )?;
+
     Ok(conn)
 }
 
@@ -118,7 +140,9 @@ pub fn remove_files_in_path(conn: &Connection, path: &Path) -> Result<(), rusqli
 /// Used by the developer "Reset & Rescan" button during early testing.
 pub fn reset_catalogue(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
-        "DROP TABLE IF EXISTS files;
+        "DROP TABLE IF EXISTS saved_edits;
+         DROP TABLE IF EXISTS edit_recipes;
+         DROP TABLE IF EXISTS files;
          DROP TABLE IF EXISTS folders;",
     )?;
     conn.execute(
@@ -159,6 +183,89 @@ pub fn reset_catalogue(conn: &Connection) -> Result<(), rusqlite::Error> {
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ignored'))
         );",
         [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS edit_recipes (
+            path TEXT PRIMARY KEY REFERENCES files(path) ON DELETE CASCADE,
+            source_file_size INTEGER NOT NULL,
+            source_last_modified INTEGER NOT NULL,
+            settings_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS saved_edits (
+            rendered_path TEXT PRIMARY KEY,
+            source_path TEXT NOT NULL,
+            archived_original_path TEXT,
+            save_strategy TEXT NOT NULL,
+            saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        [],
+    )?;
+    Ok(())
+}
+
+pub fn save_edit_recipe(
+    conn: &Connection,
+    path: &str,
+    source_file_size: u64,
+    source_last_modified: u64,
+    settings_json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO edit_recipes (path, source_file_size, source_last_modified, settings_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
+         ON CONFLICT(path) DO UPDATE SET
+            source_file_size = excluded.source_file_size,
+            source_last_modified = excluded.source_last_modified,
+            settings_json = excluded.settings_json,
+            updated_at = CURRENT_TIMESTAMP",
+        params![path, source_file_size as i64, source_last_modified as i64, settings_json],
+    )?;
+    Ok(())
+}
+
+pub fn get_edit_recipe(
+    conn: &Connection,
+    path: &str,
+    source_file_size: u64,
+    source_last_modified: u64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let recipe = conn.query_row(
+        "SELECT settings_json, source_file_size, source_last_modified FROM edit_recipes WHERE path = ?1",
+        params![path],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+    );
+    match recipe {
+        Ok((settings_json, stored_size, stored_modified))
+            if stored_size == source_file_size as i64 && stored_modified == source_last_modified as i64 => Ok(Some(settings_json)),
+        Ok(_) => {
+            conn.execute("DELETE FROM edit_recipes WHERE path = ?1", params![path])?;
+            Ok(None)
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+pub fn record_saved_edit(
+    conn: &Connection,
+    rendered_path: &str,
+    source_path: &str,
+    archived_original_path: Option<&str>,
+    save_strategy: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO saved_edits (rendered_path, source_path, archived_original_path, save_strategy)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(rendered_path) DO UPDATE SET
+            source_path = excluded.source_path,
+            archived_original_path = excluded.archived_original_path,
+            save_strategy = excluded.save_strategy,
+            saved_at = CURRENT_TIMESTAMP",
+        params![rendered_path, source_path, archived_original_path, save_strategy],
     )?;
     Ok(())
 }
