@@ -6,7 +6,7 @@ Peter’s Photo Manager is a local-first desktop photo manager for macOS and Win
 
 ## Current Status
 
-Current version: `0.4.0-alpha.1`.
+Current version: `0.4.0-alpha.2` (development).
 
 > [!WARNING]
 > The new editor save workflow is experimental. Do **not** trust it as the sole copy of an important photograph: verify the rendered output and retain an independent backup of every original. Re-editing saved images does not yet restore their prior slider settings, and rendered pixels do not yet reliably match the editor preview.
@@ -131,7 +131,7 @@ Releases will use semantic versioning:
 
 Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
 
-The current version is `0.4.0-alpha.1`. When changing the application version, keep the version values synchronized in:
+The current version is `0.4.0-alpha.2`. When changing the application version, keep the version values synchronized in:
 
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/Cargo.toml`

@@ -2,7 +2,7 @@
 
 ## Current Version
 
-`0.4.0-alpha.1` is an early testing build for macOS. It supports local folder browsing, subfolder creation, drag-and-drop file organization, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information. The editor can render and save its current adjustments.
+`0.4.0-alpha.2` is the next early development build for macOS. It supports local folder browsing, subfolder creation, drag-and-drop file organization, instant startup via a persistent SQLite database catalogue, background synchronization, responsive thumbnail selection, auto-oriented camera RAW formats (.NEF, .CR2, .ARW, .DNG, .ORF, .RW2, .PEF, .RAF) with high-fidelity background raw sensor rendering (via sips on macOS / quickraw on Windows), cached-first original image previews with sequential navigation, context menu clipboard actions, and a Details panel with file facts, ratings, manual tags, and available EXIF information. The editor can render and save its current adjustments.
 
 > [!WARNING]
 > Editor saving is experimental and must not be trusted as the only copy of a photograph. Keep independent backups and verify every rendered output. Re-editing a saved file does not yet restore its prior slider settings, and the saved rendering can differ materially from the editor preview.

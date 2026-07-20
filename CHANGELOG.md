@@ -4,6 +4,13 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.4.0-alpha.2 — Unreleased
+
+### Planned
+
+- Restore saved adjustment settings when reopening a rendered image whose archived original remains available.
+- Make rendered output match the editor preview before editor saving can be trusted for important photographs.
+
 ## 0.4.0-alpha.1 — 2026-07-19
 
 ### Changed

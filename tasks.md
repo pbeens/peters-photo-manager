@@ -3,7 +3,7 @@
 ## Current Focus
 
 Phase 9 subfolder creation, drag-and-drop file organization, context-menu viewport bounding, and open folder settings persistence — completed and packaged in `v0.3.0-alpha.11`.
-Active focus: version `0.4.0-alpha.1` edit-module design and foundation cycle.
+Active focus: version `0.4.0-alpha.2` edit-module fidelity, recipe-restoration, and save-safety cycle.
 
 ## Next Tasks
 

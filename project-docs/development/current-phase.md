@@ -2,7 +2,7 @@
 
 ## Phase
 
-Phase 10: Edit Module Foundation and Rendered Save — active in `0.4.0-alpha.1`.
+Phase 10: Edit Module Foundation and Rendered Save — active in `0.4.0-alpha.2`.
 
 ## Objective
 
