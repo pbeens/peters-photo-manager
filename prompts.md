@@ -1,5 +1,13 @@
 # Prompt Log
 
+## 2026-07-19T20:44:48-0400 — Package and publish the alpha release
+
+- Prompt summary: Produce and verify the macOS disk image for the merged release, publish the release source, and prepare the repository for the next development version.
+
+## 2026-07-19T20:34:39-0400 — Finalize experimental editor release scope
+
+- Prompt summary: Record current saved-edit defects as release blockers, warn users not to trust editor saving, update release documentation, merge the feature branch into main, and avoid committing the bulky optional DNG SDK bundle.
+
 ## 2026-07-19T20:31:09-0400 — Add original archive visibility control
 
 - Prompt summary: Add a persisted Hide originals switch to Folder options using the existing toggle style, and make the Add folder button match the Reset & Rescan button height.
