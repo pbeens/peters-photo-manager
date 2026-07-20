@@ -17,3 +17,6 @@ andy-feedback.md
 # static libraries and upstream source trees; developers install it locally
 # when working on rendered-DNG output.
 apps/desktop/src-tauri/third-party/adobe-dng-sdk/
+
+# Locally generated release installers
+exports/
