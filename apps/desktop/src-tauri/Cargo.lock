@@ -2757,9 +2757,10 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "peters-photo-manager"
-version = "0.3.0-alpha.12"
+version = "0.4.0-alpha.1"
 dependencies = [
  "arboard",
+ "cc",
  "exiftool-rs",
  "image 0.25.10",
  "kamadak-exif",

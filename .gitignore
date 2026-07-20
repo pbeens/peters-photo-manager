@@ -11,3 +11,9 @@ apps/desktop/src-tauri/target/
 # Local environment files
 .env
 .env.*
+andy-feedback.md
+
+# Optional local Adobe DNG SDK toolchain. It contains generated Apple Silicon
+# static libraries and upstream source trees; developers install it locally
+# when working on rendered-DNG output.
+apps/desktop/src-tauri/third-party/adobe-dng-sdk/

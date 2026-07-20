@@ -6,16 +6,19 @@ Peter’s Photo Manager is a local-first desktop photo manager for macOS and Win
 
 ## Current Status
 
-Current version: `0.3.0-alpha.12`.
+Current version: `0.4.0-alpha.1`.
+
+> [!WARNING]
+> The new editor save workflow is experimental. Do **not** trust it as the sole copy of an important photograph: verify the rendered output and retain an independent backup of every original. Re-editing saved images does not yet restore their prior slider settings, and rendered pixels do not yet reliably match the editor preview.
 
 > [!IMPORTANT]
 > * **Download Release Installers**: Production build setup files (such as `.dmg` for macOS) are available in the [exports/](exports/) directory.
 > * **Submit Issues**: If you run into bugs or have feature suggestions, please submit them on the [GitHub Issues](https://github.com/pbeens/peters-photo-manager/issues) page.
 > * **Support Development**: If you like this app or want to support its development, please consider [buying me a coffee](https://buymeacoffee.com/pbeens).
 
-The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails with a visible cache-size indicator, a persistent local SQLite catalogue, instant basic Details-panel updates, manual photo tags with autocomplete, and a cached-first viewer that loads the original image in the background. Thumbnail size and sorting preferences persist between launches. Viewer navigation updates in place with the selected thumbnail and details.
+The application supports multiple local root folders, an image-focused folder tree, an All Folders view, JPEG/PNG/WebP scanning, cached thumbnails with a visible cache-size indicator, a persistent local SQLite catalogue, instant basic Details-panel updates, manual photo tags with autocomplete, and a cached-first viewer that loads the original image in the background. It also includes an initial Lightroom-inspired editor. Its save workflow is experimental; JPEG/PNG/WebP output is available, while RAW-to-DNG output requires an optional locally installed Adobe DNG SDK toolchain. Thumbnail size and sorting preferences persist between launches. Viewer navigation updates in place with the selected thumbnail and details.
 
-Albums, broader editing beyond ratings and manual tags, and AI features have not been implemented yet.
+Albums, undo/redo, crop, restore-original, broader editing controls, and AI features have not been implemented yet.
 
 The application is an early development build. Releases use Semantic Versioning with prerelease labels such as `alpha.1`.
 
@@ -83,7 +86,7 @@ npm run tauri dev
 
 `npm install` downloads the frontend dependencies listed in `package.json`. It is safe to run again when dependencies change. `npm run tauri dev` starts the frontend, compiles the Rust/Tauri code, and opens the desktop application.
 
-To test the current build, open **••• Folder options**, select **Add folder**, and choose a folder containing JPEG, PNG, or WebP images. Click a thumbnail to show its file details, then double-click it to open the viewer. The viewer displays the cached thumbnail immediately and replaces it with the original file when ready. Right-click a folder to open it in the system file manager, copy its path, or remove that exact folder from the catalogue; nested-folder removal excludes only that selected folder from later scans. Original photographs are never moved or changed by folder removal.
+To test the current build, open **••• Folder options**, select **Add folder**, and choose a folder containing supported images. Click a thumbnail to show its file details, then double-click it to open the viewer. The viewer displays the cached thumbnail immediately and replaces it with the original file when ready. Select **Edit**, make an adjustment, then choose **Save**; pick an original-retention strategy from **•••** first. Right-click a folder to open it in the system file manager, copy its path, or remove that exact folder from the catalogue; nested-folder removal excludes only that selected folder from later scans. Original photographs are never moved or changed by folder removal.
 
 Press `Control-C` in Terminal to stop the development application.
 
@@ -128,7 +131,7 @@ Releases will use semantic versioning:
 
 Every public test build should document its version, supported platforms, known limitations, and changes since the previous release. Release packaging must be tested on macOS and Windows, or clearly marked when one platform remains pending.
 
-The current version is `0.3.0-alpha.12`. When changing the application version, keep the version values synchronized in:
+The current version is `0.4.0-alpha.1`. When changing the application version, keep the version values synchronized in:
 
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/Cargo.toml`

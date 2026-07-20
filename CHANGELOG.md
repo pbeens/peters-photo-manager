@@ -4,6 +4,52 @@ All notable changes to Peter’s Photo Manager are recorded here.
 
 The project follows Semantic Versioning. Pre-release versions are for development and testing only.
 
+## 0.4.0-alpha.1 — 2026-07-19
+
+### Changed
+
+- Began the dedicated edit-module development cycle on `feature/edit-module-0.4.0-alpha.1`.
+- Defined the first non-destructive, Lightroom-inspired editor scope and its safety boundaries.
+- **Experimental Save Warning**: Editor saving is now explicitly documented as unsuitable for trusted photo preservation until output fidelity and recipe restoration are corrected. The optional Adobe DNG SDK toolchain is excluded from source control; without a local installation, RAW-to-DNG saving is disabled while the rest of the app builds normally.
+
+### Added
+
+- **Edit Workspace Scaffold**: Open a full-window edit workspace from the image viewer using `E` or a cursor-revealed **Edit** button. The workspace safely returns to the viewer and does not alter photographs.
+- **Preview-Only Basic Edits**: Added collapsible Light and Colour panels for brightness, exposure, contrast, highlights, shadows, whites, blacks, vibrance, and saturation, plus Neutral, High contrast, and Matte black-and-white conversions.
+- **Draw-to-Straighten**: Added horizontal and vertical line guides for straightening. Either guide can be used alone; the latest guide controls preview rotation.
+- **Clipping Indicator**: Added a toggle in the editor’s **•••** menu and a `J` shortcut. Holding Alt on Windows or Option on macOS while moving a Light control temporarily shows the same preview warning.
+- **Effects and Frames**: Added light/dark vignette with size control, plus Gallery, Film, and Matte frame previews with size and spread controls.
+- **Persistent Editor Panels**: The open/collapsed state of every editor adjustment section is retained locally for the next image.
+- **Rendered Image Saving**: Saving edited JPEG, PNG, and WebP photos now renders the current edit into the same file format. RAW inputs render to a new 16-bit RGB DNG; on macOS Apple Silicon this uses the embedded Adobe DNG SDK writer.
+- **Original Handling Choices**: The editor menu now controls how the source is retained: an **Originals** subfolder, `filename_original.EXT`, or a separately confirmed overwrite. The completed save refreshes the viewer and thumbnail catalogue.
+- **Saved-File Reveal**: Added a persisted editor-menu switch that dynamically offers **Open saved file in Finder** on macOS or **Open saved file in Explorer** on Windows. Successful saves now show a clear Saved state.
+
+### Fixed
+
+- **Saved Viewer Refresh**: Leaving the editor after a completed save now rebuilds the viewer from the saved file instead of retaining a stale pre-save preview.
+- **JPEG Editor Save**: Fixed JPEG output by converting the rendered RGBA working image to RGB before encoding. Save failures now remain visible in the editor instead of being mistaken for a completed save.
+- **Save Responsiveness**: Saving no longer blocks on a full-folder thumbnail rebuild. The new output is displayed immediately while the catalogue refreshes in the background, and archived `Originals` are not reprocessed as duplicate gallery images.
+- **Original Archive Visibility**: Added a persisted **Hide originals** switch to Folder options, matching the existing folder-visibility toggle. The Folder menu’s Add folder and Reset & Rescan controls now share the same height.
+
+- **Viewer Edit Button Hover**: Anchored the button to the viewer and kept it interactive while moving the pointer onto it.
+- **Straighten Guides**: A newly drawn horizontal or vertical guide now replaces the prior guide rather than averaging rotations.
+- **Clipping Mask Bounds**: Replaced the corner-gradient clipping decoration with a pixel mask positioned only over the displayed photograph, preventing false warnings on the editor canvas, vignette, or frame.
+- **Clipping Controls**: Matched the sidebar’s compact switch style for the editor clipping toggle and reload the source as a same-origin image before inspecting its pixels, allowing the indicator to render reliably.
+- **Editor Adjustment Reset**: Double-clicking an adjustment slider now restores its neutral value.
+- **Photo-Bound Frames**: Frames and vignettes now use the displayed image bounds rather than the surrounding editor canvas.
+- **Simplified Frames**: Removed the misleading Spread slider, replaced the Frame None button with Reset, added a Polaroid frame, and changed Film sizing to overlay its border without shrinking the photograph.
+- **Persistent Viewer Edit Action**: The viewer Edit button now remains visible at all times.
+- **Vignette Feather**: Added a Feather control to adjust the vignette edge softness.
+- **Frame/Clipping Layering**: Frames now render above clipping masks, preventing warnings from appearing on a frame.
+- **Editor Menu Dismissal**: Clicking outside the editor options popover now closes it.
+- **Editable Adjustment Values**: Numeric slider values can now be typed directly.
+- **Channel-Aware Clipping**: Clipping now evaluates adjusted RGB channels against true black/white bounds instead of using a coarse luminance threshold.
+- **Non-Destructive Edit Recipes**: The catalogue now stores each image’s adjustment recipe and restores it only when the same original file size and modification timestamp are available.
+- **Persistent Editor Preferences**: The clipping switch and last non-zero frame size are retained locally.
+- **Straighten Guide Removal**: Removing a guide now hides only its line and preserves the resulting rotation.
+- **Viewer Edit Continuity**: Closing the editor preserves the active tonal, colour, and rotation preview in the image viewer.
+- **Thumbnail Edit Continuity**: The thumbnail grid now loads each valid stored recipe and shows its tonal, colour, and rotation preview.
+
 ## 0.3.0-alpha.11 — 2026-07-19
 
 ### Added
