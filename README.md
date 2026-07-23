@@ -48,7 +48,7 @@ Development requires:
 1. Rust and Cargo installed with [rustup](https://rust-lang.org/tools/install/).
 2. Tauri’s [platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 3. Node.js LTS and npm from [nodejs.org](https://nodejs.org/en/download).
-4. Git.
+4. Git from [git-scm.com](https://git-scm.com/install/)
 
 On macOS, the required Xcode Command Line Tools can be installed or checked with:
 
